@@ -52,6 +52,8 @@ The server will start on `http://127.0.0.1:42069`
 
 ## Usage
 
+### Basic Request
+
 Send a POST request to the `/play` endpoint with JSON containing your text:
 
 ```bash
@@ -60,54 +62,125 @@ curl -X POST http://127.0.0.1:42069/play \
   -d '{"text": "Hello, this is a test message"}'
 ```
 
+This uses the default TTS provider configured in your `.env` file.
+
 ### Voice Options
 
-You can optionally specify a voice (defaults to `alloy`):
+**Voice options depend on your TTS provider:**
+
+#### Using Edge TTS (Default - Free)
+
+Specify any Edge TTS voice name. Use `edge-tts --list-voices` to see all 100+ options.
+
+**Popular English voices:**
+```bash
+# Male voices
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Testing Edge TTS male voice",
+    "voice": "en-US-AndrewNeural"
+  }'
+
+# Female voices
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Testing Edge TTS female voice",
+    "voice": "en-US-AriaNeural"
+  }'
+```
+
+**Common Edge TTS voices:**
+- `en-US-AndrewNeural` - Confident, warm male (default)
+- `en-US-AriaNeural` - Professional female
+- `en-US-GuyNeural` - Clear male
+- `en-US-JennyNeural` - Friendly female
+- `en-GB-RyanNeural` - British male
+- `en-GB-SoniaNeural` - British female
+
+**Or omit the `voice` parameter** to use your `EDGE_VOICE` from `.env`
+
+#### Using OpenAI TTS (Premium)
+
+If you set `DEFAULT_TTS=OPENAI`, use one of these 6 voices:
 
 ```bash
 curl -X POST http://127.0.0.1:42069/play \
   -H 'Content-Type: application/json' \
   -d '{
-    "text": "This is a test with a different voice.",
+    "text": "Testing OpenAI TTS",
     "voice": "echo"
   }'
 ```
 
-**Available voices:** `alloy` (default), `echo`, `fable`, `onyx`, `nova`, `shimmer`
+**OpenAI voices:** `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`
+
+| Voice | Description |
+|-------|-------------|
+| `alloy` | Neutral, balanced |
+| `echo` | Clear, authoritative male |
+| `fable` | Warm, expressive |
+| `onyx` | Deep, rich male |
+| `nova` | Friendly female |
+| `shimmer` | Bright, energetic female |
 
 ### Voice Personalization
 
-Add character and emotion with optional `instructions`, `speed`, and `volume` parameters:
+Control playback with optional parameters:
+
+#### Available for Both Providers (Edge TTS + OpenAI)
+
+- **`speed`**: Playback speed from 0.25 (very slow) to 4.0 (very fast), default 1.0
+- **`volume`**: Volume gain from 0.1 (very quiet) to 5.0 (very loud), default 2.0
 
 ```bash
+# Works with both Edge TTS and OpenAI
 curl -X POST http://127.0.0.1:42069/play \
   -H 'Content-Type: application/json' \
   -d '{
     "text": "This is an urgent alert!",
-    "voice": "shimmer",
-    "instructions": "Speak with urgency",
+    "voice": "en-US-AndrewNeural",
     "speed": 1.15,
     "volume": 2.5
   }'
 ```
 
-- **`instructions`**: Guide how the voice should deliver the text (e.g., "Speak calmly and clearly")
-- **`speed`**: Playback speed from 0.25 (very slow) to 4.0 (very fast), default 1.0
-- **`volume`**: Volume gain from 0.1 (very quiet) to 5.0 (very loud), default 2.0
+#### OpenAI Only
+
+- **`instructions`**: Guide how the voice should deliver the text (e.g., "Speak with urgency")
+
+```bash
+# Only works with DEFAULT_TTS=OPENAI
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Critical system alert",
+    "voice": "shimmer",
+    "instructions": "Speak with urgency and concern",
+    "speed": 1.15,
+    "volume": 2.5
+  }'
+```
+
+**Note:** If you use `instructions` with Edge TTS, it will be ignored (with a log message).
 
 See [Quindar-Break-In-Developer_guide.md](Quindar-Break-In-Developer_guide.md) for detailed examples and recommendations.
 
-### What happens:
-1. TTS voice is requested from OpenAI (starts buffering immediately)
-2. **Mic pop** - subtle microphone activation sound
-3. Radio static plays (200ms) - while TTS is buffering in background
-4. Once TTS is fully buffered, **opening Quindar tone** plays (2500 Hz beep, 500ms)
-5. Post-transmission static (200ms)
-6. OpenAI TTS voice speaks your text (no delay!)
-7. **Closing Quindar tone** (2500 Hz beep, 250ms - shorter)
-8. Transmission complete!
+### Audio Sequence
 
-The approach eliminates any awkward pause between the tone and voice by buffering the TTS while playing the pre-transmission static.
+Every request plays this authentic sequence:
+
+1. **TTS generation** - Voice requested from your configured TTS provider (starts buffering immediately)
+2. **Mic pop** - Subtle microphone activation sound
+3. **Radio static** (200ms) - Plays while TTS is buffering in background
+4. **Opening Quindar tone** (2500 Hz beep, 500ms) - Once TTS is fully buffered
+5. **Post-transmission static** (200ms)
+6. **Your voice message** - Plays with no delay!
+7. **Closing Quindar tone** (2500 Hz beep, 250ms - shorter)
+8. **Transmission complete**
+
+This approach eliminates any awkward pause between the tone and voice by buffering the TTS during the pre-transmission static.
 
 ### Request Queuing
 
@@ -124,29 +197,58 @@ Each request returns immediately while a background worker processes them one at
 
 ## Example Messages
 
+### Using Edge TTS (Default)
+
 ```bash
-# Example with echo voice (clear and authoritative)
+# Professional male voice
 curl -X POST http://127.0.0.1:42069/play \
   -H 'Content-Type: application/json' \
   -d '{
     "text": "System check complete. All parameters are within normal range.",
-    "voice": "echo"
+    "voice": "en-US-GuyNeural"
   }'
 
-# Example with nova voice (friendly)
+# Friendly female voice
 curl -X POST http://127.0.0.1:42069/play \
   -H 'Content-Type: application/json' \
   -d '{
     "text": "Process completed successfully.",
-    "voice": "nova"
+    "voice": "en-US-JennyNeural"
   }'
 
-# Alert with shimmer voice (energetic)
+# British voice with speed adjustment
 curl -X POST http://127.0.0.1:42069/play \
   -H 'Content-Type: application/json' \
   -d '{
     "text": "Warning! Anomaly detected.",
-    "voice": "shimmer"
+    "voice": "en-GB-RyanNeural",
+    "speed": 1.1,
+    "volume": 2.5
+  }'
+```
+
+### Using OpenAI TTS (Premium)
+
+```bash
+# Set DEFAULT_TTS=OPENAI in .env first
+
+# Clear authoritative voice
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "System check complete.",
+    "voice": "echo"
+  }'
+
+# With instructions for personalization
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Critical alert! Immediate action required!",
+    "voice": "shimmer",
+    "instructions": "Speak with urgency and concern",
+    "speed": 1.15,
+    "volume": 3.0
   }'
 ```
 
