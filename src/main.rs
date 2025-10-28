@@ -25,6 +25,31 @@ impl TtsProvider {
     }
 }
 
+/// Tone Type options
+#[derive(Debug, Clone, PartialEq)]
+enum ToneType {
+    Quindar,       // Classic NASA Quindar tones (default)
+    None,          // No tones, just voice
+    ThreeNote,     // Three-note audience recall chime
+}
+
+impl ToneType {
+    fn from_str(s: &str) -> Self {
+        match s.to_uppercase().as_str() {
+            "NO-TONE" | "NONE" => ToneType::None,
+            "THREE-NOTE" | "THREE-NOTE-CHIME" | "CHIME" => ToneType::ThreeNote,
+            "QUINDAR" | _ => ToneType::Quindar, // Default to Quindar
+        }
+    }
+
+    fn from_env() -> Self {
+        match std::env::var("DEFAULT_TONE").as_deref() {
+            Ok(tone_str) => Self::from_str(tone_str),
+            _ => ToneType::Quindar, // Default to Quindar
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct PlayRequest {
     text: String,
@@ -36,6 +61,8 @@ struct PlayRequest {
     speed: f32,
     #[serde(default = "default_volume")]
     volume: f32,
+    #[serde(default)]
+    tone: Option<String>,
 }
 
 fn default_voice() -> String {
@@ -57,6 +84,7 @@ struct TransmissionRequest {
     instructions: Option<String>,
     speed: f32,
     volume: f32,
+    tone_type: ToneType,
 }
 
 #[derive(Clone)]
@@ -171,8 +199,78 @@ fn generate_quindar_tone_samples(duration_ms: u32) -> Vec<f32> {
         .collect()
 }
 
-/// Play Quindar tone followed by post-static, then TTS audio, then closing Quindar
-fn play_quindar_and_audio(audio_bytes: Vec<u8>, volume: f32) -> Result<(), String> {
+/// Generate three-note audience recall chime (like theater/concert hall chimes)
+/// Simple ascending C-E-G pattern, xylophone-like with echo and depth
+fn generate_three_note_chime() -> Vec<f32> {
+    let sample_rate = 48000;
+    let note_duration_ms = 800; // Longer notes for depth (800ms)
+    let note_overlap_ms = 300;  // Notes overlap while previous dissipates
+
+    // Frequencies for C5-E5-G5 (middle register, clear and pleasant)
+    let frequencies = [523.25, 659.25, 783.99]; // C5, E5, G5
+
+    let note_samples = sample_rate * note_duration_ms / 1000;
+    let overlap_samples = sample_rate * note_overlap_ms / 1000;
+    let attack_samples = sample_rate * 10 / 1000; // 10ms soft attack
+
+    // Total length: first note + (spacing * 2 notes) + decay tail
+    let note_spacing = note_samples - overlap_samples;
+    let total_length = note_samples + (note_spacing * 2) + (sample_rate / 2); // Extra 500ms decay
+    let mut result = vec![0.0; total_length];
+
+    for (idx, frequency) in frequencies.iter().enumerate() {
+        let start_position = idx * note_spacing;
+
+        // Generate one note
+        for i in 0..note_samples {
+            let t = i as f32 / sample_rate as f32;
+
+            // Primary tone
+            let sine_wave = (t * frequency * 2.0 * PI).sin();
+
+            // Add harmonics for depth (octave and fifth)
+            let harmonic_1 = (t * frequency * 2.0 * 2.0 * PI).sin() * 0.15; // Octave
+            let harmonic_2 = (t * frequency * 1.5 * 2.0 * PI).sin() * 0.1;  // Fifth
+
+            let combined = sine_wave + harmonic_1 + harmonic_2;
+
+            // Softer attack, longer exponential decay
+            let envelope = if i < attack_samples {
+                // Very soft attack
+                (i as f32 / attack_samples as f32) * 0.5
+            } else {
+                // Slow exponential decay for depth
+                let decay_t = (i - attack_samples) as f32 / note_samples as f32;
+                (-decay_t * 1.8).exp() * 0.5
+            };
+
+            // Add echo/reverb (simple delay-based echo)
+            let with_envelope = combined * envelope;
+            let position = start_position + i;
+
+            if position < result.len() {
+                result[position] += with_envelope * 0.25; // Main signal (softer)
+            }
+
+            // First echo at 120ms
+            let echo1_pos = position + (sample_rate * 120 / 1000);
+            if echo1_pos < result.len() {
+                result[echo1_pos] += with_envelope * 0.12; // Softer echo
+            }
+
+            // Second echo at 240ms
+            let echo2_pos = position + (sample_rate * 240 / 1000);
+            if echo2_pos < result.len() {
+                result[echo2_pos] += with_envelope * 0.06; // Even softer echo
+            }
+        }
+    }
+
+    result
+}
+
+/// Play tones and audio based on tone type
+fn play_tones_and_audio(audio_bytes: Vec<u8>, volume: f32, tone_type: ToneType) -> Result<(), String> {
     let (_stream, stream_handle) = OutputStream::try_default()
         .map_err(|e| format!("Failed to create output stream: {}", e))?;
     let sink = Sink::try_new(&stream_handle)
@@ -180,25 +278,54 @@ fn play_quindar_and_audio(audio_bytes: Vec<u8>, volume: f32) -> Result<(), Strin
 
     let sample_rate = 48000;
 
-    println!("Playing opening Quindar tone...");
+    match tone_type {
+        ToneType::Quindar => {
+            println!("Playing opening Quindar tone...");
 
-    // Opening Quindar tone (500ms)
-    let opening_tone_samples = generate_quindar_tone_samples(500);
-    let opening_tone_source = AudioSource {
-        samples: opening_tone_samples,
-        sample_rate,
-        current: 0,
-    };
-    sink.append(opening_tone_source);
+            // Opening Quindar tone (500ms)
+            let opening_tone_samples = generate_quindar_tone_samples(500);
+            let opening_tone_source = AudioSource {
+                samples: opening_tone_samples,
+                sample_rate,
+                current: 0,
+            };
+            sink.append(opening_tone_source);
 
-    // Post-transmission static (200ms)
-    let post_static = generate_static(200, sample_rate);
-    let post_static_source = AudioSource {
-        samples: post_static,
-        sample_rate,
-        current: 0,
-    };
-    sink.append(post_static_source);
+            // Post-transmission static (200ms)
+            let post_static = generate_static(200, sample_rate);
+            let post_static_source = AudioSource {
+                samples: post_static,
+                sample_rate,
+                current: 0,
+            };
+            sink.append(post_static_source);
+        }
+        ToneType::ThreeNote => {
+            println!("Playing three-note audience recall chime...");
+
+            // Three-note chime
+            let chime_samples = generate_three_note_chime();
+            let chime_source = AudioSource {
+                samples: chime_samples,
+                sample_rate,
+                current: 0,
+            };
+            sink.append(chime_source);
+
+            // Brief pause after chime
+            let pause_static = generate_static(100, sample_rate);
+            let pause_source = AudioSource {
+                samples: pause_static,
+                sample_rate,
+                current: 0,
+            };
+            sink.append(pause_source);
+        }
+        ToneType::None => {
+            println!("No tone - playing voice only...");
+            // No opening tone, just play the voice
+        }
+    }
 
     println!("Playing voice transmission (volume: {:.1}x)...", volume);
 
@@ -211,16 +338,49 @@ fn play_quindar_and_audio(audio_bytes: Vec<u8>, volume: f32) -> Result<(), Strin
     let amplified_source = source.amplify(volume);
     sink.append(amplified_source);
 
-    println!("Playing closing Quindar tone...");
+    // Closing tone (only for Quindar and ThreeNote)
+    match tone_type {
+        ToneType::Quindar => {
+            println!("Playing closing Quindar tone...");
 
-    // Closing Quindar tone (shorter - 250ms)
-    let closing_tone_samples = generate_quindar_tone_samples(250);
-    let closing_tone_source = AudioSource {
-        samples: closing_tone_samples,
-        sample_rate,
-        current: 0,
-    };
-    sink.append(closing_tone_source);
+            // Closing Quindar tone (shorter - 250ms)
+            let closing_tone_samples = generate_quindar_tone_samples(250);
+            let closing_tone_source = AudioSource {
+                samples: closing_tone_samples,
+                sample_rate,
+                current: 0,
+            };
+            sink.append(closing_tone_source);
+        }
+        ToneType::ThreeNote => {
+            println!("Playing closing chime...");
+
+            // Shorter chime for closing (single note, like a bell)
+            let closing_freq = 783.99; // G5 - final note of the chime
+            let closing_duration_ms = 300;
+            let closing_samples = sample_rate * closing_duration_ms / 1000;
+
+            let closing_chime: Vec<f32> = (0..closing_samples)
+                .map(|i| {
+                    let t = i as f32 / sample_rate as f32;
+                    let sine_wave = (t * closing_freq * 2.0 * PI).sin();
+                    let decay_t = i as f32 / closing_samples as f32;
+                    let envelope = (-decay_t * 2.5).exp();
+                    sine_wave * envelope * 0.35
+                })
+                .collect();
+
+            let closing_source = AudioSource {
+                samples: closing_chime,
+                sample_rate,
+                current: 0,
+            };
+            sink.append(closing_source);
+        }
+        ToneType::None => {
+            // No closing tone
+        }
+    }
 
     sink.sleep_until_end();
 
@@ -459,10 +619,11 @@ async fn process_transmission(req: TransmissionRequest) {
         }
     };
 
-    // Now play Quindar tone followed immediately by the buffered voice
+    // Now play tones and audio based on tone type
     let volume = req.volume;
+    let tone_type = req.tone_type.clone();
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = play_quindar_and_audio(audio_bytes, volume) {
+        if let Err(e) = play_tones_and_audio(audio_bytes, volume, tone_type) {
             eprintln!("Error playing audio: {}", e);
         }
     })
@@ -500,12 +661,19 @@ async fn play_tone_handler(
     }
     println!("{}", log_msg);
 
+    // Determine tone type (from request or environment default)
+    let tone_type = match &payload.tone {
+        Some(tone_str) => ToneType::from_str(tone_str),
+        None => ToneType::from_env(),
+    };
+
     let transmission = TransmissionRequest {
         text: payload.text,
         voice: payload.voice,
         instructions: payload.instructions,
         speed: payload.speed,
         volume: payload.volume,
+        tone_type,
     };
 
     if let Err(e) = state.tx.send(transmission) {

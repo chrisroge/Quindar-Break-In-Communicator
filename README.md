@@ -42,6 +42,19 @@ OPENAI_API_KEY=your_actual_api_key_here
 - Supports `instructions` parameter for voice personalization
 - Uses OpenAI's premium TTS voices
 
+3. **Choose your tone type** in `.env`:
+
+```env
+DEFAULT_TONE=QUINDAR
+```
+
+**Available tone types:**
+- **QUINDAR** (default) - Classic NASA Quindar tones (2500 Hz beep before/after voice)
+- **THREE-NOTE-CHIME** - Audience recall chime (C-E-G, like theater/concert hall)
+- **NO-TONE** - No tones, just voice
+
+You can also override the tone per-request (see examples below).
+
 ## Running the Application
 
 ```bash
@@ -167,9 +180,51 @@ curl -X POST http://127.0.0.1:42069/play \
 
 See [Quindar-Break-In-Developer_guide.md](Quindar-Break-In-Developer_guide.md) for detailed examples and recommendations.
 
+### Tone Options
+
+Override the default tone type for individual requests using the `tone` parameter:
+
+```bash
+# Use the three-note audience recall chime (theater/concert hall style)
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Please return to your seats, the presentation will begin shortly",
+    "voice": "en-US-AndrewNeural",
+    "tone": "THREE-NOTE-CHIME"
+  }'
+
+# Play voice only, no tones
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Simple announcement without any tones",
+    "voice": "en-US-JennyNeural",
+    "tone": "NO-TONE"
+  }'
+
+# Use classic Quindar tone (override if DEFAULT_TONE is different)
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Mission control style announcement",
+    "voice": "en-US-GuyNeural",
+    "tone": "QUINDAR"
+  }'
+```
+
+**Available tone values:**
+- `QUINDAR` - Classic NASA Quindar tones (2500 Hz beep before/after)
+- `THREE-NOTE-CHIME` - Audience recall chime (C-E-G ascending, xylophone-like with echo)
+- `NO-TONE` - Voice only, no tones
+
+If omitted, uses the `DEFAULT_TONE` from your `.env` file.
+
 ### Audio Sequence
 
-Every request plays this authentic sequence:
+The audio sequence varies based on your tone type selection:
+
+#### QUINDAR Mode (Default)
 
 1. **TTS generation** - Voice requested from your configured TTS provider (starts buffering immediately)
 2. **Mic pop** - Subtle microphone activation sound
@@ -180,7 +235,23 @@ Every request plays this authentic sequence:
 7. **Closing Quindar tone** (2500 Hz beep, 250ms - shorter)
 8. **Transmission complete**
 
-This approach eliminates any awkward pause between the tone and voice by buffering the TTS during the pre-transmission static.
+#### THREE-NOTE-CHIME Mode
+
+1. **TTS generation** - Voice buffering begins
+2. **Mic pop** - Subtle microphone activation sound
+3. **Radio static** (200ms) - Plays while buffering
+4. **Three-note chime** (C-E-G ascending with echo and depth)
+5. **Your voice message** - Plays immediately after chime
+6. **Closing chime** - Same three-note pattern
+7. **Transmission complete**
+
+#### NO-TONE Mode
+
+1. **TTS generation** - Voice buffering
+2. **Your voice message** - Plays directly, no tones or static
+3. **Transmission complete**
+
+This approach eliminates any awkward pause between tones and voice by buffering the TTS during the pre-transmission audio.
 
 ### Request Queuing
 
