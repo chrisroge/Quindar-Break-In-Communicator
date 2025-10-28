@@ -1,0 +1,16 @@
+# Rust build artifacts
+/target
+
+# Environment variables (contains API keys!)
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
