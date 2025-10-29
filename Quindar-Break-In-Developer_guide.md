@@ -14,6 +14,8 @@ The Quindar Break-In API is a **pure Rust** audio communication service designed
 - [Request Format](#request-format)
 - [Response Format](#response-format)
 - [Voice Options](#voice-options)
+- [Tone Options](#tone-options)
+- [Voice Personalization](#voice-personalization)
 - [Queue Behavior](#queue-behavior)
 - [Audio Sequence](#audio-sequence)
 - [Examples](#examples)
@@ -135,13 +137,14 @@ The request body must be valid JSON with the following structure:
 
 ### Parameters
 
-| Parameter      | Type   | Required | Default  | Description                                             |
-|----------------|--------|----------|----------|---------------------------------------------------------|
-| `text`         | string | Yes      | -        | The message to be spoken (max ~4096 chars)              |
-| `voice`        | string | No       | `"alloy"` | The OpenAI TTS voice to use (see Voice Options)         |
-| `instructions` | string | No       | -        | Instructions to personalize the voice delivery          |
-| `speed`        | number | No       | `1.0`    | Playback speed (0.25 to 4.0, where 1.0 is normal speed) |
-| `volume`       | number | No       | `2.0`    | Volume gain multiplier (0.1 to 5.0, where 1.0 is original volume) |
+| Parameter      | Type   | Required | Default     | Description                                             |
+|----------------|--------|----------|-------------|---------------------------------------------------------|
+| `text`         | string | Yes      | -           | The message to be spoken (max ~4096 chars)              |
+| `voice`        | string | No       | `"alloy"`   | The OpenAI TTS voice to use (see Voice Options)         |
+| `instructions` | string | No       | -           | Instructions to personalize the voice delivery          |
+| `speed`        | number | No       | `1.0`       | Playback speed (0.25 to 4.0, where 1.0 is normal speed) |
+| `volume`       | number | No       | `2.0`       | Volume gain multiplier (0.1 to 5.0, where 1.0 is original volume) |
+| `tone`         | string | No       | `"QUINDAR"` | Tone type: `"QUINDAR"`, `"THREE-NOTE-CHIME"`, or `"NO-TONE"` (see Tone Options) |
 
 ### Example Request
 
@@ -222,6 +225,83 @@ This is equivalent to:
   "voice": "alloy"
 }
 ```
+
+## Tone Options
+
+The API supports three different tone types that play before and after your voice message. You can override the default tone type per-request using the `tone` parameter.
+
+### Available Tone Types
+
+| Tone Type            | Value               | Description                                                                  |
+|----------------------|---------------------|------------------------------------------------------------------------------|
+| **QUINDAR** (default)| `"QUINDAR"`         | Classic NASA Quindar tones (2500 Hz beep before/after voice)                |
+| **THREE-NOTE-CHIME** | `"THREE-NOTE-CHIME"`| Audience recall chime (C-E-G ascending, theater/concert hall style)         |
+| **NO-TONE**          | `"NO-TONE"`         | Voice only, no tones (silent transmission)                                  |
+
+**Accepted Values:** The API accepts multiple variations:
+- Quindar: `"QUINDAR"`, `"quindar"` (case-insensitive)
+- Three-Note: `"THREE-NOTE-CHIME"`, `"THREE-NOTE"`, `"CHIME"` (case-insensitive)
+- No Tone: `"NO-TONE"`, `"NONE"` (case-insensitive)
+
+### Tone Type Examples
+
+```bash
+# Classic NASA Quindar tone (default)
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Mission control, all systems nominal",
+    "tone": "QUINDAR"
+  }'
+
+# Three-note audience recall chime (theater style)
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Please return to your seats, the presentation will begin shortly",
+    "tone": "THREE-NOTE-CHIME"
+  }'
+
+# Voice only, no tones
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Simple announcement without tones",
+    "tone": "NO-TONE"
+  }'
+```
+
+### Default Tone Behavior
+
+If you omit the `tone` parameter, the API uses the default configured in your `.env` file (`DEFAULT_TONE` setting), which defaults to `"QUINDAR"` if not specified.
+
+```json
+{
+  "text": "Message without tone parameter"
+}
+```
+
+This uses the default QUINDAR tone (or whatever is set in your `.env`).
+
+### Audio Sequences by Tone Type
+
+#### QUINDAR Mode (Default)
+1. Mic pop sound
+2. Radio static (200ms)
+3. Opening Quindar tone (2500 Hz, 500ms)
+4. Post-tone static (200ms)
+5. **Your voice message**
+6. Closing Quindar tone (2500 Hz, 250ms - shorter)
+
+#### THREE-NOTE-CHIME Mode
+1. Mic pop sound
+2. Radio static (200ms)
+3. Three-note ascending chime (C-E-G with echo)
+4. **Your voice message**
+5. Closing chime (same pattern)
+
+#### NO-TONE Mode
+1. **Your voice message only** (no tones or static)
 
 ## Voice Personalization
 
