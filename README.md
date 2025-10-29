@@ -11,7 +11,13 @@ A Rust application that plays a Quindar tone followed by text-to-speech audio wh
 
 ## What is a Quindar Tone?
 
-Quindar tones are beep tones that were used in NASA communications to signal when the ground-to-air radio link was activated. This implementation uses a 2500 Hz tone for 500ms with radio static before and after the beep.
+Quindar tones are the iconic "beeps" heard during NASA's Apollo missions. Named after Quindar Electronics Inc., these in-band signaling tones (2525 Hz opening, 2475 Hz closing) were used to remotely key transmitters at ground stations when CapCom (capsule communicator) needed to speak with astronauts in space. Rather than building expensive dedicated control lines between NASA's mission control and remote tracking stations worldwide, engineers cleverly embedded these 250ms audio tones to turn transmitters on and off—a cost-effective solution that became one of the most recognizable sounds of the space age.
+
+## Why This Matters for AI Agents
+
+In the era of autonomous AI agents, there's a critical need for agents to get human attention when necessary—whether for approvals, urgent notifications, or time-sensitive decisions. Just as NASA's CapCom used Quindar tones to break into radio communications with astronauts, AI agents need a reliable "break-in" mechanism to interrupt and notify people.
+
+This API provides a lightweight, native service that any AI agent can call via simple HTTP requests. Running locally on your machine, it gives agents an immediate, audible way to capture your attention with familiar NASA-style tones followed by spoken messages. No complex notification systems, no dependencies on cloud services—just a straightforward API that any agent can integrate with a single curl command.
 
 ## Quick Start
 
