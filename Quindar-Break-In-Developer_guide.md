@@ -286,17 +286,18 @@ This uses the default QUINDAR tone (or whatever is set in your `.env`).
 ### Audio Sequences by Tone Type
 
 #### QUINDAR Mode (Default)
-1. Mic pop sound (plays while TTS buffers)
-2. Opening Quindar tone (2500 Hz, 500ms) - Once TTS is ready
-3. Post-tone static (200ms)
-4. **Your voice message**
-5. Closing Quindar tone (2500 Hz, 250ms - shorter)
+1. **TTS generation** - Voice requested from your configured TTS provider
+2. **Opening Quindar tone** (2500 Hz beep, 500ms) - Once TTS is ready
+3. **Your voice message** - Plays immediately
+4. **Closing Quindar tone** (2500 Hz beep, 250ms - shorter)
+5. **Transmission complete**
 
 #### THREE-NOTE-CHIME Mode
-1. Mic pop sound (plays while TTS buffers)
-2. Three-note ascending chime (C-E-G with echo) - Once TTS is ready
-3. **Your voice message**
-4. Closing chime (same pattern)
+1. **TTS generation** - Voice requested from your configured TTS provider
+2. **Three-note chime** (C-E-G ascending with echo and depth) - Once TTS is ready
+3. **Your voice message** - Plays immediately
+4. **Closing chime** - Same three-note pattern
+5. **Transmission complete**
 
 #### NO-TONE Mode
 1. **Your voice message only** (no tones or static)

@@ -295,15 +295,6 @@ fn play_tones_and_audio(
                 current: 0,
             };
             sink.append(opening_tone_source);
-
-            // Post-transmission static (200ms)
-            let post_static = generate_static(200, sample_rate);
-            let post_static_source = AudioSource {
-                samples: post_static,
-                sample_rate,
-                current: 0,
-            };
-            sink.append(post_static_source);
         }
         ToneType::ThreeNote => {
             println!("Playing three-note audience recall chime...");
@@ -316,15 +307,6 @@ fn play_tones_and_audio(
                 current: 0,
             };
             sink.append(chime_source);
-
-            // Brief pause after chime
-            let pause_static = generate_static(100, sample_rate);
-            let pause_source = AudioSource {
-                samples: pause_static,
-                sample_rate,
-                current: 0,
-            };
-            sink.append(pause_source);
         }
         ToneType::None => {
             println!("No tone - playing voice only...");
@@ -597,15 +579,7 @@ async fn process_transmission(req: TransmissionRequest) {
         }
     });
 
-    // Play mic pop while TTS is being fetched/buffered
-    println!("Playing mic pop while buffering voice...");
-    match tokio::task::spawn_blocking(|| play_mic_pop()).await {
-        Ok(Ok(())) => println!("Mic pop played successfully"),
-        Ok(Err(e)) => eprintln!("Warning: Could not play mic pop: {}", e),
-        Err(e) => eprintln!("Warning: Audio task failed: {}", e),
-    }
-
-    // Wait for TTS to complete buffering
+    // Wait for TTS to complete buffering (no pre-transmission audio)
     let audio_bytes = match tts_task.await {
         Ok(Ok(bytes)) => {
             println!("Voice buffered successfully!");
