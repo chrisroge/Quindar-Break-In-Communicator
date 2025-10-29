@@ -5,7 +5,6 @@ use axum::{
     routing::post,
 };
 use msedge_tts::tts::{SpeechConfig, client::connect_async};
-use rand::Rng;
 use rodio::{Decoder, OutputStream, Sink, Source};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
@@ -96,75 +95,6 @@ struct TransmissionRequest {
 #[derive(Clone)]
 struct AppState {
     tx: mpsc::UnboundedSender<TransmissionRequest>,
-}
-
-/// Generate a mic pop sound (short impulse)
-fn generate_mic_pop(sample_rate: u32) -> Vec<f32> {
-    let duration_ms = 30; // Very short pop
-    let total_samples = sample_rate * duration_ms / 1000;
-    let mut rng = rand::thread_rng();
-
-    (0..total_samples)
-        .map(|i| {
-            // Create a quick burst with exponential decay
-            let t = i as f32 / total_samples as f32;
-            let decay = (-t * 8.0).exp(); // Fast exponential decay
-            let noise: f32 = rng.gen_range(-1.0..1.0);
-
-            // Mix a low frequency bump with noise for that "pop" sound
-            let bump = (t * 100.0 * 2.0 * PI).sin() * decay;
-
-            (bump * 0.15 + noise * decay * 0.05).clamp(-0.2, 0.2)
-        })
-        .collect()
-}
-
-/// Generate radio static/crackle
-fn generate_static(duration_ms: u32, sample_rate: u32) -> Vec<f32> {
-    let total_samples = sample_rate * duration_ms / 1000;
-    let mut rng = rand::thread_rng();
-
-    (0..total_samples)
-        .map(|i| {
-            // Generate white noise
-            let noise: f32 = rng.gen_range(-1.0..1.0);
-
-            // Apply fade in/out envelope for smooth transitions
-            let fade_samples = sample_rate * 20 / 1000; // 20ms fade
-            let envelope = if i < fade_samples {
-                i as f32 / fade_samples as f32
-            } else if i > total_samples - fade_samples {
-                (total_samples - i) as f32 / fade_samples as f32
-            } else {
-                1.0
-            };
-
-            // Low amplitude for subtle static
-            noise * envelope * 0.08
-        })
-        .collect()
-}
-
-/// Play mic pop only (removed pre-transmission static to avoid awkward silence during TTS generation)
-fn play_mic_pop() -> Result<(), String> {
-    let (_stream, stream_handle) = OutputStream::try_default()
-        .map_err(|e| format!("No audio device available: {}", e))?;
-    let sink = Sink::try_new(&stream_handle)
-        .map_err(|e| format!("Failed to create audio sink: {}", e))?;
-
-    let sample_rate = 48000;
-
-    // Mic pop only - brief, clean sound
-    let mic_pop_samples = generate_mic_pop(sample_rate);
-    let mic_pop_source = AudioSource {
-        samples: mic_pop_samples,
-        sample_rate,
-        current: 0,
-    };
-    sink.append(mic_pop_source);
-    sink.sleep_until_end();
-
-    Ok(())
 }
 
 /// Generate Quindar tone samples
