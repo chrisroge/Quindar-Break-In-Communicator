@@ -10,34 +10,8 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Linux build (x86_64 only - no ARM cross-compile)
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            artifact_name: quindar_api
-            asset_name: quindar-tone-api-linux-x86_64
-
-          # macOS builds (both Intel and Apple Silicon)
-          - target: x86_64-apple-darwin
-            os: macos-13  # Intel Mac
-            artifact_name: quindar_api
-            asset_name: quindar-tone-api-macos-x86_64
-
-          - target: aarch64-apple-darwin
-            os: macos-14  # Apple Silicon Mac
-            artifact_name: quindar_api
-            asset_name: quindar-tone-api-macos-aarch64
-
-          # Windows build
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            artifact_name: quindar_api.exe
-            asset_name: quindar-tone-api-windows-x86_64.exe
+    name: Build Windows x64
+    runs-on: windows-latest
 
     steps:
       - name: Checkout code
@@ -47,30 +21,24 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          target: ${{ matrix.target }}
-
-      - name: Install ALSA development libraries (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config libssl-dev
+          target: x86_64-pc-windows-msvc
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target x86_64-pc-windows-msvc
 
-      - name: Strip binary (Unix)
-        if: runner.os != 'Windows'
+      - name: Rename binary with descriptive name
         run: |
-          strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }} || true
+          Copy-Item target/x86_64-pc-windows-msvc/release/quindar_api.exe quindar-tone-api-windows-x64.exe
+        shell: pwsh
 
       - name: Upload binary to release
         run: |
-          gh release upload ${{ github.event.release.tag_name || github.ref_name }} target/${{ matrix.target }}/release/${{ matrix.artifact_name }}#${{ matrix.asset_name }} --clobber
+          gh release upload ${{ github.event.release.tag_name || github.ref_name }} quindar-tone-api-windows-x64.exe --clobber
         env:
           GH_TOKEN: ${{ github.token }}
 
       - name: Upload artifact for download
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset_name }}
-          path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+          name: quindar-tone-api-windows-x64
+          path: quindar-tone-api-windows-x64.exe

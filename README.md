@@ -21,22 +21,18 @@ This API provides a lightweight, native service that any AI agent can call via s
 
 ## Quick Start
 
-### Option 1: Download Pre-compiled Binary (Recommended)
+### Option 1: Download Pre-compiled Binary (Windows Only)
 
-Download the latest binary for your platform from the [Releases page](../../releases):
+Download the Windows x64 binary from the [Releases page](../../releases):
 
-- **Linux**: `quindar-tone-api-linux-x86_64`
-- **macOS**: `quindar-tone-api-macos-x86_64` or `quindar-tone-api-macos-aarch64` (Apple Silicon)
-- **Windows**: `quindar-tone-api-windows-x86_64.exe`
+**Windows**: `quindar-tone-api-windows-x64.exe`
 
 ```bash
-# Linux/macOS: Make executable and run
-chmod +x quindar-tone-api-*
-./quindar-tone-api-*
-
-# Windows: Double-click or run from terminal
-quindar-tone-api-windows-x86_64.exe
+# Double-click to run, or from terminal:
+quindar-tone-api-windows-x64.exe
 ```
+
+> **Linux/macOS users**: Please use Option 2 (Build from Source) below. Additional platform binaries coming soon!
 
 **No configuration needed!** The binary runs immediately with sensible defaults:
 - **TTS Provider**: Edge TTS (free, no API key required)

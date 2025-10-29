@@ -181,10 +181,10 @@ echo ""
 echo -e "${YELLOW}[4/4] Verifying installation...${NC}"
 echo ""
 
-if [ -f "target/release/quindar-tone-api" ]; then
-    print_status "Binary created: target/release/quindar-tone-api"
-elif [ -f "target/release/quindar-tone-api.exe" ]; then
-    print_status "Binary created: target/release/quindar-tone-api.exe"
+if [ -f "target/release/quindar_api" ]; then
+    print_status "Binary created: target/release/quindar_api"
+elif [ -f "target/release/quindar_api.exe" ]; then
+    print_status "Binary created: target/release/quindar_api.exe"
 else
     print_warning "Binary not found in expected location"
 fi
