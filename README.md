@@ -38,6 +38,13 @@ chmod +x quindar-tone-api-*
 quindar-tone-api-windows-x86_64.exe
 ```
 
+**No configuration needed!** The binary runs immediately with sensible defaults:
+- **TTS Provider**: Edge TTS (free, no API key required)
+- **Voice**: en-US-AndrewNeural (professional male voice)
+- **Tone Type**: Quindar (classic NASA tones)
+
+Optional: Create a `.env` file in the same directory as the binary to customize settings (see [Setup](#setup) section below).
+
 ### Option 2: Build from Source
 
 **Requirements**:
