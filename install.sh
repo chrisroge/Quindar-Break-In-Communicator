@@ -51,6 +51,29 @@ else
     MISSING_DEPS=1
 fi
 
+# Check for pkg-config (required for OpenSSL detection on Linux)
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    if command_exists pkg-config; then
+        print_status "pkg-config found"
+    else
+        print_error "pkg-config not found"
+        print_info "Install with: sudo apt install pkg-config (Debian/Ubuntu) or sudo yum install pkg-config (Fedora/RHEL)"
+        MISSING_DEPS=1
+    fi
+fi
+
+# Check for OpenSSL development libraries (Linux only)
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    if pkg-config --exists openssl 2>/dev/null; then
+        OPENSSL_VERSION=$(pkg-config --modversion openssl 2>/dev/null || echo "unknown")
+        print_status "OpenSSL development libraries found (version $OPENSSL_VERSION)"
+    else
+        print_error "OpenSSL development libraries not found"
+        print_info "Install with: sudo apt install libssl-dev (Debian/Ubuntu) or sudo yum install openssl-devel (Fedora/RHEL)"
+        MISSING_DEPS=1
+    fi
+fi
+
 # Check for system audio libraries (Linux only)
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     if pkg-config --exists alsa 2>/dev/null; then

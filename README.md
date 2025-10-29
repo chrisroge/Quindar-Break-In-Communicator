@@ -34,16 +34,23 @@ quindar-tone-api-windows-x86_64.exe
 
 ### Option 2: Build from Source
 
-**Requirements**: Rust 1.87+ ([install from rustup.rs](https://rustup.rs/))
+**Requirements**:
+- Rust 1.87+ ([install from rustup.rs](https://rustup.rs/))
+- **Linux only**: System libraries for compilation
+  - **pkg-config**: `sudo apt install pkg-config` (Debian/Ubuntu) or `sudo yum install pkg-config` (Fedora/RHEL)
+  - **OpenSSL development libraries**: `sudo apt install libssl-dev` (Debian/Ubuntu) or `sudo yum install openssl-devel` (Fedora/RHEL)
+  - **ALSA development libraries**: `sudo apt install libasound2-dev` (Debian/Ubuntu) or `sudo yum install alsa-lib-devel` (Fedora/RHEL)
 
 ```bash
-git clone https://github.com/your-username/quindar-tone-api.git
-cd quindar-tone-api
-./install.sh  # Interactive setup
+git clone https://github.com/chrisroge/Quindar-Break-In-Communicator.git
+cd Quindar-Break-In-Communicator
+./install.sh  # Interactive setup (checks and guides you through dependencies)
 # Or manually:
 cp .env.example .env
 cargo run --release
 ```
+
+**Note**: macOS and Windows users typically don't need additional system libraries.
 
 ## Setup
 
