@@ -396,7 +396,6 @@ All dependencies are pure Rust - no Python or external tools required!
 - **reqwest**: HTTP client for OpenAI API
 - **serde**: JSON serialization
 - **dotenv**: Environment variable management
-- **rand**: Random number generation for radio static
 
 ## Documentation
 
@@ -407,6 +406,44 @@ All dependencies are pure Rust - no Python or external tools required!
   - Code examples in multiple languages
   - Advanced usage patterns
   - Error handling guide
+
+## Troubleshooting
+
+### ALSA Errors on Linux/WSL
+
+If you see ALSA error messages like:
+```
+ALSA lib confmisc.c:855:(parse_card) cannot find card '0'
+ALSA lib conf.c:5204:(_snd_config_evaluate) function snd_func_card_inum returned error
+```
+
+These are expected when running on WSL (Windows Subsystem for Linux) or headless Linux systems without audio hardware. The application handles missing audio devices gracefully, but ALSA itself logs these warnings.
+
+**Solutions:**
+
+1. **Suppress ALSA errors** (recommended):
+```bash
+cat > ~/.asoundrc << 'EOF'
+pcm.!default {
+    type plug
+    slave.pcm "null"
+}
+EOF
+```
+
+2. **Redirect stderr**:
+```bash
+./quindar-tone-api-linux-x64 2>/dev/null
+```
+
+3. **Enable audio in WSL2**: Follow [Microsoft's WSL audio guide](https://learn.microsoft.com/en-us/windows/wsl/tutorials/gui-apps)
+
+### No Audio Output
+
+- Ensure audio is not muted and volume is turned up
+- On Linux, verify ALSA/PulseAudio is configured correctly
+- On WSL, audio requires WSL2 with GUI support
+- Try the test request in the Quick Start section to verify functionality
 
 ## 💖 Support This Project
 
