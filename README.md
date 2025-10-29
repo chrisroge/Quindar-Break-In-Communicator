@@ -13,6 +13,38 @@ A Rust application that plays a Quindar tone followed by text-to-speech audio wh
 
 Quindar tones are beep tones that were used in NASA communications to signal when the ground-to-air radio link was activated. This implementation uses a 2500 Hz tone for 500ms with radio static before and after the beep.
 
+## Quick Start
+
+### Option 1: Download Pre-compiled Binary (Recommended)
+
+Download the latest binary for your platform from the [Releases page](../../releases):
+
+- **Linux**: `quindar-tone-api-linux-x86_64`
+- **macOS**: `quindar-tone-api-macos-x86_64` or `quindar-tone-api-macos-aarch64` (Apple Silicon)
+- **Windows**: `quindar-tone-api-windows-x86_64.exe`
+
+```bash
+# Linux/macOS: Make executable and run
+chmod +x quindar-tone-api-*
+./quindar-tone-api-*
+
+# Windows: Double-click or run from terminal
+quindar-tone-api-windows-x86_64.exe
+```
+
+### Option 2: Build from Source
+
+**Requirements**: Rust 1.87+ ([install from rustup.rs](https://rustup.rs/))
+
+```bash
+git clone https://github.com/your-username/quindar-tone-api.git
+cd quindar-tone-api
+./install.sh  # Interactive setup
+# Or manually:
+cp .env.example .env
+cargo run --release
+```
+
 ## Setup
 
 1. Copy `.env.example` to `.env`:
@@ -27,11 +59,11 @@ cp .env.example .env
 DEFAULT_TTS=EDGE
 EDGE_VOICE=en-US-AndrewNeural
 ```
-- **No API key required**
+- **No API key required** - Pure Rust implementation
 - Uses Microsoft Edge TTS (free service)
 - Excellent quality neural voices
-- See available voices: `edge-tts --list-voices`
-- Requires: `pip install edge-tts`
+- 100+ voices in 40+ languages
+- **No Python dependencies required**
 
 ### OpenAI TTS (Premium)
 ```env
@@ -83,7 +115,7 @@ This uses the default TTS provider configured in your `.env` file.
 
 #### Using Edge TTS (Default - Free)
 
-Specify any Edge TTS voice name. Use `edge-tts --list-voices` to see all 100+ options.
+Specify any Edge TTS voice name from Microsoft's 100+ available voices.
 
 **Popular English voices:**
 ```bash
@@ -331,7 +363,7 @@ For more examples and integration patterns, see [Quindar-Break-In-Developer_guid
 |---------|-------------------|----------------------|
 | Cost | Free | Requires API key |
 | Quality | Excellent (neural) | Excellent (neural) |
-| Setup | `pip install edge-tts` | API key required |
+| Setup | No dependencies - Pure Rust | API key required |
 | Voice Options | 100+ voices, 40+ languages | 6 voices (alloy, echo, fable, onyx, nova, shimmer) |
 | Instructions | ❌ Not supported | ✅ Supported |
 | Speed Control | ✅ Supported | ✅ Supported |
@@ -339,15 +371,16 @@ For more examples and integration patterns, see [Quindar-Break-In-Developer_guid
 
 ## Dependencies
 
+All dependencies are pure Rust - no Python or external tools required!
+
 - **axum**: Web framework for the HTTP API
 - **tokio**: Async runtime
 - **rodio**: Audio playback library
+- **msedge-tts**: Native Rust client for Microsoft Edge TTS API
 - **reqwest**: HTTP client for OpenAI API
 - **serde**: JSON serialization
 - **dotenv**: Environment variable management
 - **rand**: Random number generation for radio static
-- **uuid**: Unique identifiers for temp files
-- **edge-tts**: Free, high-quality TTS (Python package)
 
 ## Documentation
 

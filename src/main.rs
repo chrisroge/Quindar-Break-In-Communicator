@@ -7,6 +7,7 @@ use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use msedge_tts::tts::{client::connect_async, SpeechConfig};
 
 /// TTS Provider options
 #[derive(Debug, Clone, PartialEq)]
@@ -477,7 +478,7 @@ async fn get_openai_tts(
     Ok(audio_bytes.to_vec())
 }
 
-/// Get TTS from Edge TTS (free, local)
+/// Get TTS from Edge TTS using native Rust client
 async fn get_edge_tts(
     text: &str,
     voice: &str,
@@ -507,39 +508,30 @@ async fn get_edge_tts(
         voice.to_string()
     };
 
-    // Create a temporary file for output
-    let temp_file = format!("/tmp/edge_tts_{}.mp3", uuid::Uuid::new_v4());
+    println!("Calling Edge TTS API with voice: {}, rate: {}", final_voice, rate_str);
 
-    println!("Calling edge-tts with voice: {}, rate: {}", final_voice, rate_str);
-
-    // Call edge-tts command
-    let output = tokio::process::Command::new("edge-tts")
-        .arg("--text")
-        .arg(text)
-        .arg("--voice")
-        .arg(&final_voice)
-        .arg("--rate")
-        .arg(&rate_str)
-        .arg("--write-media")
-        .arg(&temp_file)
-        .output()
+    // Create TTS client
+    let mut client = connect_async()
         .await
-        .map_err(|e| format!("Failed to execute edge-tts: {}. Make sure edge-tts is installed (pip install edge-tts)", e))?;
+        .map_err(|e| format!("Failed to connect to Edge TTS: {}", e))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("edge-tts failed: {}", stderr));
-    }
+    // Create speech config with voice and rate
+    // SpeechConfig fields: voice_name, audio_format, pitch, rate, volume (all i32 except strings)
+    let config = SpeechConfig {
+        voice_name: final_voice,
+        audio_format: "audio-24khz-48kbitrate-mono-mp3".to_string(),
+        pitch: 0,  // Normal pitch
+        rate: rate_percent,  // Already calculated as i32 percentage
+        volume: 0,  // Normal volume
+    };
 
-    // Read the generated audio file
-    let audio_bytes = tokio::fs::read(&temp_file)
+    // Synthesize speech
+    let audio_result = client
+        .synthesize(text, &config)
         .await
-        .map_err(|e| format!("Failed to read generated audio: {}", e))?;
+        .map_err(|e| format!("Failed to synthesize speech: {}", e))?;
 
-    // Clean up temp file
-    let _ = tokio::fs::remove_file(&temp_file).await;
-
-    Ok(audio_bytes)
+    Ok(audio_result.audio_bytes)
 }
 
 /// Process a single transmission (called by queue processor)

@@ -37,7 +37,7 @@ print_info() {
 }
 
 # Check prerequisites
-echo -e "${YELLOW}[1/5] Checking prerequisites...${NC}"
+echo -e "${YELLOW}[1/4] Checking prerequisites...${NC}"
 echo ""
 
 MISSING_DEPS=0
@@ -48,24 +48,6 @@ if command_exists rustc && command_exists cargo; then
     print_status "Rust found (version $RUST_VERSION)"
 else
     print_error "Rust not found. Please install from https://rustup.rs/"
-    MISSING_DEPS=1
-fi
-
-# Check for Python
-if command_exists python3; then
-    PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
-    print_status "Python found (version $PYTHON_VERSION)"
-else
-    print_error "Python 3 not found. Please install Python 3"
-    MISSING_DEPS=1
-fi
-
-# Check for pip
-if command_exists pip3 || command_exists pip; then
-    PIP_CMD=$(command_exists pip3 && echo "pip3" || echo "pip")
-    print_status "pip found"
-else
-    print_error "pip not found. Please install pip"
     MISSING_DEPS=1
 fi
 
@@ -87,7 +69,7 @@ if [ $MISSING_DEPS -eq 1 ]; then
 fi
 
 # Setup environment file
-echo -e "${YELLOW}[2/5] Setting up environment configuration...${NC}"
+echo -e "${YELLOW}[2/4] Setting up environment configuration...${NC}"
 echo ""
 
 if [ -f ".env" ]; then
@@ -157,23 +139,8 @@ if [ $SKIP_ENV -eq 0 ]; then
     echo ""
 fi
 
-# Install Python dependencies
-echo -e "${YELLOW}[3/5] Installing Python dependencies...${NC}"
-echo ""
-
-# Check if edge-tts is needed
-if grep -q "DEFAULT_TTS=EDGE" .env 2>/dev/null || [ ! -f ".env" ]; then
-    print_info "Installing edge-tts Python package..."
-    $PIP_CMD install edge-tts --quiet
-    print_status "edge-tts installed successfully"
-else
-    print_info "Edge TTS not selected, skipping edge-tts installation"
-fi
-
-echo ""
-
 # Build Rust project
-echo -e "${YELLOW}[4/5] Building Rust project...${NC}"
+echo -e "${YELLOW}[3/4] Building Rust project...${NC}"
 echo ""
 print_info "Running 'cargo build --release' (this may take a few minutes)..."
 echo ""
@@ -188,7 +155,7 @@ fi
 echo ""
 
 # Verify installation
-echo -e "${YELLOW}[5/5] Verifying installation...${NC}"
+echo -e "${YELLOW}[4/4] Verifying installation...${NC}"
 echo ""
 
 if [ -f "target/release/quindar-tone-api" ]; then
@@ -214,14 +181,11 @@ echo "  1. Start the server:"
 echo "     ${YELLOW}cargo run --release${NC}"
 echo ""
 echo "  2. Test the API (in another terminal):"
-echo "     ${YELLOW}curl -X POST http://localhost:3000/quindar \\${NC}"
+echo "     ${YELLOW}curl -X POST http://localhost:42069/play \\${NC}"
 echo "       ${YELLOW}-H \"Content-Type: application/json\" \\${NC}"
 echo "       ${YELLOW}-d '{\"text\": \"Hello from Quindar Tone API\"}'${NC}"
 echo ""
-echo "  3. View available voices (Edge TTS):"
-echo "     ${YELLOW}edge-tts --list-voices${NC}"
-echo ""
-echo "  4. Read the documentation:"
+echo "  3. Read the documentation:"
 echo "     ${YELLOW}cat README.md${NC}"
 echo ""
 echo -e "${BLUE}Configuration:${NC}"
