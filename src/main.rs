@@ -145,8 +145,8 @@ fn generate_static(duration_ms: u32, sample_rate: u32) -> Vec<f32> {
         .collect()
 }
 
-/// Play mic pop and static
-fn play_mic_pop_and_static(duration_ms: u32) -> Result<(), String> {
+/// Play mic pop only (removed pre-transmission static to avoid awkward silence during TTS generation)
+fn play_mic_pop() -> Result<(), String> {
     let (_stream, stream_handle) = OutputStream::try_default()
         .map_err(|e| format!("No audio device available: {}", e))?;
     let sink = Sink::try_new(&stream_handle)
@@ -154,7 +154,7 @@ fn play_mic_pop_and_static(duration_ms: u32) -> Result<(), String> {
 
     let sample_rate = 48000;
 
-    // Mic pop first
+    // Mic pop only - brief, clean sound
     let mic_pop_samples = generate_mic_pop(sample_rate);
     let mic_pop_source = AudioSource {
         samples: mic_pop_samples,
@@ -162,15 +162,6 @@ fn play_mic_pop_and_static(duration_ms: u32) -> Result<(), String> {
         current: 0,
     };
     sink.append(mic_pop_source);
-
-    // Then static
-    let static_samples = generate_static(duration_ms, sample_rate);
-    let static_source = AudioSource {
-        samples: static_samples,
-        sample_rate,
-        current: 0,
-    };
-    sink.append(static_source);
     sink.sleep_until_end();
 
     Ok(())
@@ -606,11 +597,11 @@ async fn process_transmission(req: TransmissionRequest) {
         }
     });
 
-    // Play mic pop and pre-transmission static while TTS is being fetched/buffered
-    println!("Playing mic pop and pre-transmission static while buffering voice...");
-    match tokio::task::spawn_blocking(|| play_mic_pop_and_static(200)).await {
-        Ok(Ok(())) => println!("Pre-transmission audio played successfully"),
-        Ok(Err(e)) => eprintln!("Warning: Could not play pre-transmission audio: {}", e),
+    // Play mic pop while TTS is being fetched/buffered
+    println!("Playing mic pop while buffering voice...");
+    match tokio::task::spawn_blocking(|| play_mic_pop()).await {
+        Ok(Ok(())) => println!("Mic pop played successfully"),
+        Ok(Err(e)) => eprintln!("Warning: Could not play mic pop: {}", e),
         Err(e) => eprintln!("Warning: Audio task failed: {}", e),
     }
 

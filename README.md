@@ -280,23 +280,21 @@ The audio sequence varies based on your tone type selection:
 #### QUINDAR Mode (Default)
 
 1. **TTS generation** - Voice requested from your configured TTS provider (starts buffering immediately)
-2. **Mic pop** - Subtle microphone activation sound
-3. **Radio static** (200ms) - Plays while TTS is buffering in background
-4. **Opening Quindar tone** (2500 Hz beep, 500ms) - Once TTS is fully buffered
-5. **Post-transmission static** (200ms)
-6. **Your voice message** - Plays with no delay!
-7. **Closing Quindar tone** (2500 Hz beep, 250ms - shorter)
-8. **Transmission complete**
+2. **Mic pop** - Brief microphone activation sound (plays while TTS buffers)
+3. **Opening Quindar tone** (2500 Hz beep, 500ms) - Once TTS is fully buffered
+4. **Post-tone static** (200ms) - Brief crackle after tone
+5. **Your voice message** - Plays with no delay!
+6. **Closing Quindar tone** (2500 Hz beep, 250ms - shorter)
+7. **Transmission complete**
 
 #### THREE-NOTE-CHIME Mode
 
 1. **TTS generation** - Voice buffering begins
-2. **Mic pop** - Subtle microphone activation sound
-3. **Radio static** (200ms) - Plays while buffering
-4. **Three-note chime** (C-E-G ascending with echo and depth)
-5. **Your voice message** - Plays immediately after chime
-6. **Closing chime** - Same three-note pattern
-7. **Transmission complete**
+2. **Mic pop** - Brief microphone activation sound (plays while TTS buffers)
+3. **Three-note chime** (C-E-G ascending with echo and depth) - Once TTS is buffered
+4. **Your voice message** - Plays immediately after chime
+5. **Closing chime** - Same three-note pattern
+6. **Transmission complete**
 
 #### NO-TONE Mode
 
