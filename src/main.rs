@@ -1,4 +1,10 @@
-use axum::{extract::{Json, State}, response::IntoResponse, routing::post, Router};
+use axum::{
+    Router,
+    extract::{Json, State},
+    response::IntoResponse,
+    routing::post,
+};
+use msedge_tts::tts::{SpeechConfig, client::connect_async};
 use rand::Rng;
 use rodio::{Decoder, OutputStream, Sink, Source};
 use serde::{Deserialize, Serialize};
@@ -7,7 +13,6 @@ use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use msedge_tts::tts::{client::connect_async, SpeechConfig};
 
 /// TTS Provider options
 #[derive(Debug, Clone, PartialEq)]
@@ -29,9 +34,9 @@ impl TtsProvider {
 /// Tone Type options
 #[derive(Debug, Clone, PartialEq)]
 enum ToneType {
-    Quindar,       // Classic NASA Quindar tones (default)
-    None,          // No tones, just voice
-    ThreeNote,     // Three-note audience recall chime
+    Quindar,   // Classic NASA Quindar tones (default)
+    None,      // No tones, just voice
+    ThreeNote, // Three-note audience recall chime
 }
 
 impl ToneType {
@@ -39,7 +44,7 @@ impl ToneType {
         match s.to_uppercase().as_str() {
             "NO-TONE" | "NONE" => ToneType::None,
             "THREE-NOTE" | "THREE-NOTE-CHIME" | "CHIME" => ToneType::ThreeNote,
-            "QUINDAR" | _ => ToneType::Quindar, // Default to Quindar
+            _ => ToneType::Quindar, // Default to Quindar
         }
     }
 
@@ -75,7 +80,7 @@ fn default_speed() -> f32 {
 }
 
 fn default_volume() -> f32 {
-    2.0  // Default to 2x volume to match Quindar tone loudness
+    2.0 // Default to 2x volume to match Quindar tone loudness
 }
 
 #[derive(Clone)]
@@ -205,7 +210,7 @@ fn generate_quindar_tone_samples(duration_ms: u32) -> Vec<f32> {
 fn generate_three_note_chime() -> Vec<f32> {
     let sample_rate = 48000;
     let note_duration_ms = 800; // Longer notes for depth (800ms)
-    let note_overlap_ms = 300;  // Notes overlap while previous dissipates
+    let note_overlap_ms = 300; // Notes overlap while previous dissipates
 
     // Frequencies for C5-E5-G5 (middle register, clear and pleasant)
     let frequencies = [523.25, 659.25, 783.99]; // C5, E5, G5
@@ -231,7 +236,7 @@ fn generate_three_note_chime() -> Vec<f32> {
 
             // Add harmonics for depth (octave and fifth)
             let harmonic_1 = (t * frequency * 2.0 * 2.0 * PI).sin() * 0.15; // Octave
-            let harmonic_2 = (t * frequency * 1.5 * 2.0 * PI).sin() * 0.1;  // Fifth
+            let harmonic_2 = (t * frequency * 1.5 * 2.0 * PI).sin() * 0.1; // Fifth
 
             let combined = sine_wave + harmonic_1 + harmonic_2;
 
@@ -271,11 +276,15 @@ fn generate_three_note_chime() -> Vec<f32> {
 }
 
 /// Play tones and audio based on tone type
-fn play_tones_and_audio(audio_bytes: Vec<u8>, volume: f32, tone_type: ToneType) -> Result<(), String> {
+fn play_tones_and_audio(
+    audio_bytes: Vec<u8>,
+    volume: f32,
+    tone_type: ToneType,
+) -> Result<(), String> {
     let (_stream, stream_handle) = OutputStream::try_default()
         .map_err(|e| format!("Failed to create output stream: {}", e))?;
-    let sink = Sink::try_new(&stream_handle)
-        .map_err(|e| format!("Failed to create sink: {}", e))?;
+    let sink =
+        Sink::try_new(&stream_handle).map_err(|e| format!("Failed to create sink: {}", e))?;
 
     let sample_rate = 48000;
 
@@ -332,8 +341,7 @@ fn play_tones_and_audio(audio_bytes: Vec<u8>, volume: f32, tone_type: ToneType) 
 
     // TTS audio with volume boost
     let cursor = Cursor::new(audio_bytes);
-    let source = Decoder::new(cursor)
-        .map_err(|e| format!("Failed to decode audio: {}", e))?;
+    let source = Decoder::new(cursor).map_err(|e| format!("Failed to decode audio: {}", e))?;
 
     // Apply volume gain
     let amplified_source = source.amplify(volume);
@@ -479,11 +487,7 @@ async fn get_openai_tts(
 }
 
 /// Get TTS from Edge TTS using native Rust client
-async fn get_edge_tts(
-    text: &str,
-    voice: &str,
-    speed: f32,
-) -> Result<Vec<u8>, String> {
+async fn get_edge_tts(text: &str, voice: &str, speed: f32) -> Result<Vec<u8>, String> {
     // Map speed to edge-tts rate format (percentage)
     // speed 0.25 -> -75%, speed 1.0 -> +0%, speed 4.0 -> +300%
     let rate_percent = ((speed - 1.0) * 100.0).round() as i32;
@@ -494,13 +498,18 @@ async fn get_edge_tts(
     };
 
     // Get edge voice (use env var or default)
-    let edge_voice = std::env::var("EDGE_VOICE")
-        .unwrap_or_else(|_| "en-US-AndrewNeural".to_string());
+    let edge_voice =
+        std::env::var("EDGE_VOICE").unwrap_or_else(|_| "en-US-AndrewNeural".to_string());
 
     // Use edge voice if no specific voice mapping needed
     // In the future, we could map OpenAI voice names to Edge voices
-    let final_voice = if voice == "alloy" || voice == "echo" || voice == "fable"
-                         || voice == "onyx" || voice == "nova" || voice == "shimmer" {
+    let final_voice = if voice == "alloy"
+        || voice == "echo"
+        || voice == "fable"
+        || voice == "onyx"
+        || voice == "nova"
+        || voice == "shimmer"
+    {
         // Use default edge voice for OpenAI voice names
         edge_voice
     } else {
@@ -508,7 +517,10 @@ async fn get_edge_tts(
         voice.to_string()
     };
 
-    println!("Calling Edge TTS API with voice: {}, rate: {}", final_voice, rate_str);
+    println!(
+        "Calling Edge TTS API with voice: {}, rate: {}",
+        final_voice, rate_str
+    );
 
     // Create TTS client
     let mut client = connect_async()
@@ -520,9 +532,9 @@ async fn get_edge_tts(
     let config = SpeechConfig {
         voice_name: final_voice,
         audio_format: "audio-24khz-48kbitrate-mono-mp3".to_string(),
-        pitch: 0,  // Normal pitch
-        rate: rate_percent,  // Already calculated as i32 percentage
-        volume: 0,  // Normal volume
+        pitch: 0,           // Normal pitch
+        rate: rate_percent, // Already calculated as i32 percentage
+        volume: 0,          // Normal volume
     };
 
     // Synthesize speech
@@ -536,17 +548,18 @@ async fn get_edge_tts(
 
 /// Process a single transmission (called by queue processor)
 async fn process_transmission(req: TransmissionRequest) {
-    println!("\n=== Processing transmission: {} (voice: {}) ===", req.text, req.voice);
+    println!(
+        "\n=== Processing transmission: {} (voice: {}) ===",
+        req.text, req.voice
+    );
 
     // Determine TTS provider
     let tts_provider = TtsProvider::from_env();
 
     // Validate API key if using OpenAI
-    if tts_provider == TtsProvider::OpenAI {
-        if std::env::var("OPENAI_API_KEY").is_err() {
-            eprintln!("Error: OPENAI_API_KEY not set but DEFAULT_TTS=OPENAI");
-            return;
-        }
+    if tts_provider == TtsProvider::OpenAI && std::env::var("OPENAI_API_KEY").is_err() {
+        eprintln!("Error: OPENAI_API_KEY not set but DEFAULT_TTS=OPENAI");
+        return;
     }
 
     // Start requesting TTS immediately (async)
@@ -580,7 +593,9 @@ async fn process_transmission(req: TransmissionRequest) {
             TtsProvider::Edge => {
                 // Edge TTS doesn't support instructions parameter
                 if instructions.is_some() {
-                    println!("Note: Edge TTS does not support instructions parameter (OpenAI only)");
+                    println!(
+                        "Note: Edge TTS does not support instructions parameter (OpenAI only)"
+                    );
                 }
                 get_edge_tts(&text, &voice, speed).await
             }
@@ -641,7 +656,10 @@ async fn play_tone_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<PlayRequest>,
 ) -> impl IntoResponse {
-    let mut log_msg = format!("Received request, adding to queue: {} (voice: {})", payload.text, payload.voice);
+    let mut log_msg = format!(
+        "Received request, adding to queue: {} (voice: {})",
+        payload.text, payload.voice
+    );
     if payload.speed != 1.0 {
         log_msg.push_str(&format!(", speed: {}", payload.speed));
     }
@@ -670,7 +688,7 @@ async fn play_tone_handler(
 
     if let Err(e) = state.tx.send(transmission) {
         eprintln!("Failed to enqueue transmission: {}", e);
-        return format!("Error: Failed to queue transmission");
+        return "Error: Failed to queue transmission".to_string();
     }
 
     "Transmission queued successfully!".to_string()
@@ -710,7 +728,9 @@ async fn main() {
     println!("TTS Provider: {}", tts_name);
     println!("Transmission queue enabled - multiple requests will play sequentially");
     println!("Send a POST request with JSON body: {{\"text\": \"your message\"}}");
-    println!("Example: curl -X POST http://127.0.0.1:42069/play -H 'Content-Type: application/json' -d '{{\"text\": \"Test message\"}}'");
+    println!(
+        "Example: curl -X POST http://127.0.0.1:42069/play -H 'Content-Type: application/json' -d '{{\"text\": \"Test message\"}}'"
+    );
 
     axum::serve(listener, app).await.unwrap();
 }
