@@ -13,34 +13,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux builds
+          # Linux build (x86_64 only - no ARM cross-compile)
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact_name: quindar_api
             asset_name: quindar-tone-api-linux-x86_64
 
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            artifact_name: quindar_api
-            asset_name: quindar-tone-api-linux-x86_64-musl
-
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            artifact_name: quindar_api
-            asset_name: quindar-tone-api-linux-aarch64
-
-          # macOS builds
+          # macOS builds (both Intel and Apple Silicon)
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: macos-13  # Intel Mac
             artifact_name: quindar_api
             asset_name: quindar-tone-api-macos-x86_64
 
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: macos-14  # Apple Silicon Mac
             artifact_name: quindar_api
             asset_name: quindar-tone-api-macos-aarch64
 
-          # Windows builds
+          # Windows build
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             artifact_name: quindar_api.exe
@@ -56,28 +46,14 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools (Linux ARM)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Install musl tools (Linux MUSL)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-
       - name: Install ALSA development libraries (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev
+          sudo apt-get install -y libasound2-dev pkg-config libssl-dev
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
       - name: Strip binary (Unix)
         if: runner.os != 'Windows'
@@ -85,14 +61,11 @@ jobs:
           strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }} || true
 
       - name: Upload binary to release
-        uses: actions/upload-release-asset@v1
+        uses: softprops/action-gh-release@v1
+        with:
+          files: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
-          asset_name: ${{ matrix.asset_name }}
-          asset_content_type: application/octet-stream
 
       - name: Upload artifact for download
         uses: actions/upload-artifact@v4
