@@ -65,7 +65,7 @@ jobs:
 
       - name: Upload binary to release
         run: |
-          gh release upload ${{ github.event.release.tag_name || github.ref_name }} target/${{ matrix.target }}/release/${{ matrix.artifact_name }} --clobber
+          gh release upload ${{ github.event.release.tag_name || github.ref_name }} target/${{ matrix.target }}/release/${{ matrix.artifact_name }}#${{ matrix.asset_name }} --clobber
         env:
           GH_TOKEN: ${{ github.token }}
 
