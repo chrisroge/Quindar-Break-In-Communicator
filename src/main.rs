@@ -146,9 +146,11 @@ fn generate_static(duration_ms: u32, sample_rate: u32) -> Vec<f32> {
 }
 
 /// Play mic pop and static
-fn play_mic_pop_and_static(duration_ms: u32) {
-    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-    let sink = Sink::try_new(&stream_handle).unwrap();
+fn play_mic_pop_and_static(duration_ms: u32) -> Result<(), String> {
+    let (_stream, stream_handle) = OutputStream::try_default()
+        .map_err(|e| format!("No audio device available: {}", e))?;
+    let sink = Sink::try_new(&stream_handle)
+        .map_err(|e| format!("Failed to create audio sink: {}", e))?;
 
     let sample_rate = 48000;
 
@@ -170,6 +172,8 @@ fn play_mic_pop_and_static(duration_ms: u32) {
     };
     sink.append(static_source);
     sink.sleep_until_end();
+
+    Ok(())
 }
 
 /// Generate Quindar tone samples
@@ -604,11 +608,11 @@ async fn process_transmission(req: TransmissionRequest) {
 
     // Play mic pop and pre-transmission static while TTS is being fetched/buffered
     println!("Playing mic pop and pre-transmission static while buffering voice...");
-    tokio::task::spawn_blocking(|| {
-        play_mic_pop_and_static(200);
-    })
-    .await
-    .unwrap();
+    match tokio::task::spawn_blocking(|| play_mic_pop_and_static(200)).await {
+        Ok(Ok(())) => println!("Pre-transmission audio played successfully"),
+        Ok(Err(e)) => eprintln!("Warning: Could not play pre-transmission audio: {}", e),
+        Err(e) => eprintln!("Warning: Audio task failed: {}", e),
+    }
 
     // Wait for TTS to complete buffering
     let audio_bytes = match tts_task.await {
@@ -629,13 +633,15 @@ async fn process_transmission(req: TransmissionRequest) {
     // Now play tones and audio based on tone type
     let volume = req.volume;
     let tone_type = req.tone_type.clone();
-    tokio::task::spawn_blocking(move || {
+    if let Err(e) = tokio::task::spawn_blocking(move || {
         if let Err(e) = play_tones_and_audio(audio_bytes, volume, tone_type) {
             eprintln!("Error playing audio: {}", e);
         }
     })
     .await
-    .unwrap();
+    {
+        eprintln!("Audio playback task failed: {}", e);
+    }
 
     println!("Transmission complete!\n");
 }
