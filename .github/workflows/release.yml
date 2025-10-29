@@ -10,8 +10,35 @@ permissions:
 
 jobs:
   build:
-    name: Build Windows x64
-    runs-on: windows-latest
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary_name: quindar_api.exe
+            asset_name: quindar-tone-api-windows-x64.exe
+
+          - platform: macOS x64 (Intel)
+            os: macos-13
+            target: x86_64-apple-darwin
+            binary_name: quindar_api
+            asset_name: quindar-tone-api-macos-x64
+
+          - platform: macOS ARM64 (Apple Silicon)
+            os: macos-14
+            target: aarch64-apple-darwin
+            binary_name: quindar_api
+            asset_name: quindar-tone-api-macos-arm64
+
+          - platform: Linux x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary_name: quindar_api
+            asset_name: quindar-tone-api-linux-x64
 
     steps:
       - name: Checkout code
@@ -21,24 +48,41 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          target: x86_64-pc-windows-msvc
+          target: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config libssl-dev
 
       - name: Build release binary
-        run: cargo build --release --target x86_64-pc-windows-msvc
+        run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary with descriptive name
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
         run: |
-          Copy-Item target/x86_64-pc-windows-msvc/release/quindar_api.exe quindar-tone-api-windows-x64.exe
+          strip target/${{ matrix.target }}/release/${{ matrix.binary_name }} || true
+
+      - name: Rename binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Copy-Item target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.asset_name }}
         shell: pwsh
+
+      - name: Rename binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.asset_name }}
 
       - name: Upload binary to release
         run: |
-          gh release upload ${{ github.event.release.tag_name || github.ref_name }} quindar-tone-api-windows-x64.exe --clobber
+          gh release upload ${{ github.event.release.tag_name || github.ref_name }} ${{ matrix.asset_name }} --clobber
         env:
           GH_TOKEN: ${{ github.token }}
 
       - name: Upload artifact for download
         uses: actions/upload-artifact@v4
         with:
-          name: quindar-tone-api-windows-x64
-          path: quindar-tone-api-windows-x64.exe
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}

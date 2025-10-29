@@ -2,7 +2,9 @@
 
 ## Overview
 
-The Quindar Break-In API is an audio communication service that plays text using OpenAI's Text-to-Speech technology, complete with Quindar tones, radio static, and microphone pops.
+The Quindar Break-In API is a **pure Rust** audio communication service designed for AI agents to get human attention. It plays text using configurable Text-to-Speech (Edge TTS or OpenAI TTS), complete with NASA Quindar tones, radio static, and microphone pops.
+
+**Perfect for AI Agents:** This API provides a simple HTTP endpoint that any autonomous agent can call to interrupt and notify users with audible messages - no complex integrations required.
 
 ## Table of Contents
 
@@ -43,11 +45,11 @@ EDGE_VOICE=en-US-AndrewNeural
 - ✅ **High Quality** - Neural voices from Microsoft Edge
 - ✅ **100+ Voices** - Multiple languages and accents
 - ✅ **Fast** - Low latency
+- ✅ **Pure Rust** - Native implementation, no Python dependencies
 - ❌ **No Instructions** - Does not support voice personalization
-- **Installation**: `pip install edge-tts`
 
 **Available Voices:**
-See full list with `edge-tts --list-voices`. Popular options:
+See [Microsoft's full voice list](https://speech.microsoft.com/portal/voicegallery). Popular options:
 - `en-US-AndrewNeural` - Confident, warm male (default)
 - `en-US-AriaNeural` - Professional female
 - `en-US-GuyNeural` - Clear male voice
@@ -84,7 +86,7 @@ OPENAI_API_KEY=your_api_key_here
 | Languages | 40+ | English primary |
 | Instructions Support | ❌ | ✅ |
 | Speed Control | ✅ | ✅ |
-| Installation | `pip install edge-tts` | API key only |
+| Dependencies | None (built-in) | API key only |
 | Best Use Case | Development, multi-language | Production, personalization |
 
 ### Switching Providers
