@@ -12,6 +12,8 @@ jobs:
   build:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     strategy:
       fail-fast: false
       matrix:
@@ -58,8 +60,6 @@ jobs:
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
-        env:
-          MACOSX_DEPLOYMENT_TARGET: "11.0"
 
       - name: Strip binary (Unix)
         if: runner.os != 'Windows'
