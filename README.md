@@ -419,9 +419,28 @@ ALSA lib conf.c:5204:(_snd_config_evaluate) function snd_func_card_inum returned
 
 These are expected when running on WSL (Windows Subsystem for Linux) or headless Linux systems without audio hardware. The application handles missing audio devices gracefully, but ALSA itself logs these warnings.
 
-**Solutions:**
+**Best Solution - Headless Mode:**
 
-1. **Suppress ALSA errors** (recommended):
+Run with `HEADLESS_MODE=true` to completely eliminate ALSA errors:
+
+```bash
+# One-time run
+HEADLESS_MODE=true ./quindar-tone-api-linux-x64
+
+# Or add to .env file
+echo "HEADLESS_MODE=true" >> .env
+./quindar-tone-api-linux-x64
+```
+
+**What headless mode does:**
+- ✅ **Eliminates ALL ALSA errors** - No audio device creation attempted
+- ✅ **TTS still generated** - Voice synthesis works normally
+- ✅ **API returns success** - Perfect for WSL, Docker, CI/CD
+- ✅ **Zero configuration** - Just set the environment variable
+
+**Alternative Solutions:**
+
+1. **Suppress ALSA errors** (if you prefer logging):
 ```bash
 cat > ~/.asoundrc << 'EOF'
 pcm.!default {

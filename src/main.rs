@@ -200,12 +200,25 @@ fn generate_three_note_chime() -> Vec<f32> {
     result
 }
 
+/// Check if running in headless mode (no audio output)
+fn is_headless_mode() -> bool {
+    std::env::var("HEADLESS_MODE")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false)
+}
+
 /// Play tones and audio based on tone type
 fn play_tones_and_audio(
     audio_bytes: Vec<u8>,
     volume: f32,
     tone_type: ToneType,
 ) -> Result<(), String> {
+    // Check for headless mode (WSL, headless servers, testing)
+    if is_headless_mode() {
+        println!("Headless mode: Skipping audio playback (TTS generated successfully)");
+        return Ok(());
+    }
+
     let (_stream, stream_handle) = OutputStream::try_default()
         .map_err(|e| format!("Failed to create output stream: {}", e))?;
     let sink =
@@ -627,6 +640,14 @@ async fn main() {
 
     println!("Quindar Tone API server running on http://127.0.0.1:42069");
     println!("TTS Provider: {}", tts_name);
+
+    if is_headless_mode() {
+        println!("Audio Output: HEADLESS MODE (no audio playback, TTS generation only)");
+        println!("  → Perfect for WSL, headless servers, and testing environments");
+    } else {
+        println!("Audio Output: ENABLED");
+    }
+
     println!("Transmission queue enabled - multiple requests will play sequentially");
     println!("Send a POST request with JSON body: {{\"text\": \"your message\"}}");
     println!(
