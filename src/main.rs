@@ -627,9 +627,17 @@ async fn main() {
         .route("/play", post(play_tone_handler))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:42069")
+    // Get bind address from environment or use default
+    let bind_address = std::env::var("BIND_ADDRESS")
+        .unwrap_or_else(|_| "127.0.0.1:42069".to_string());
+
+    let listener = tokio::net::TcpListener::bind(&bind_address)
         .await
-        .unwrap();
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to bind to {}: {}", bind_address, e);
+            eprintln!("Make sure the address is valid and the port is not already in use.");
+            std::process::exit(1);
+        });
 
     // Show TTS provider information
     let tts_provider = TtsProvider::from_env();
@@ -638,7 +646,7 @@ async fn main() {
         TtsProvider::OpenAI => "OpenAI (premium)",
     };
 
-    println!("Quindar Tone API server running on http://127.0.0.1:42069");
+    println!("Quindar Tone API server running on http://{}", bind_address);
     println!("TTS Provider: {}", tts_name);
 
     if is_headless_mode() {
@@ -650,8 +658,16 @@ async fn main() {
 
     println!("Transmission queue enabled - multiple requests will play sequentially");
     println!("Send a POST request with JSON body: {{\"text\": \"your message\"}}");
+
+    // Show example curl command with current bind address
+    let example_url = if bind_address.starts_with("0.0.0.0") {
+        "http://127.0.0.1:42069".to_string()
+    } else {
+        format!("http://{}", bind_address)
+    };
     println!(
-        "Example: curl -X POST http://127.0.0.1:42069/play -H 'Content-Type: application/json' -d '{{\"text\": \"Test message\"}}'"
+        "Example: curl -X POST {}/play -H 'Content-Type: application/json' -d '{{\"text\": \"Test message\"}}'",
+        example_url
     );
 
     axum::serve(listener, app).await.unwrap();

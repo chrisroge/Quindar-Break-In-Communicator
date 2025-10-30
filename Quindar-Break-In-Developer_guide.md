@@ -105,6 +105,100 @@ DEFAULT_TTS=OPENAI
 
 The API endpoints and request format remain the same regardless of provider.
 
+## Using with WSL (Windows Subsystem for Linux)
+
+### RECOMMENDED: Access Windows Binary from WSL
+
+**The Problem:** WSL lacks direct ALSA audio device access. Running the Linux binary in WSL generates TTS successfully but fails during audio playback with ALSA errors.
+
+**The Solution:** Run the Windows binary on Windows and access it from WSL over the network. This provides full audio support through Windows' audio system.
+
+### Quick Setup
+
+#### 1. Configure Windows Binary for Network Access
+
+Add to your `.env` file (same directory as Windows binary):
+```env
+BIND_ADDRESS=0.0.0.0:42069
+```
+
+Then run the Windows binary normally:
+```powershell
+.\quindar-tone-api-windows-x64.exe
+```
+
+#### 2. Access from WSL
+
+From WSL, use the Windows host IP instead of localhost:
+
+```bash
+# Get Windows host IP (run once to see it)
+WINDOWS_HOST=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+echo $WINDOWS_HOST  # Typically 172.x.x.x
+
+# Make API call
+curl -X POST http://$WINDOWS_HOST:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Hello from WSL"}'
+```
+
+#### 3. Automate WSL Access (Optional)
+
+Add to your WSL `~/.bashrc`:
+```bash
+# Quindar API helper for WSL
+export QUINDAR_HOST=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+export QUINDAR_API="http://$QUINDAR_HOST:42069/play"
+
+# Convenience function
+quindar() {
+  curl -s -X POST "$QUINDAR_API" \
+    -H 'Content-Type: application/json' \
+    -d "{\"text\": \"$1\"}"
+}
+```
+
+Reload: `source ~/.bashrc`
+
+Usage:
+```bash
+quindar "Build complete!"
+quindar "Tests passed successfully"
+```
+
+### Why This Works
+
+| Aspect | Windows Binary Approach | Linux Binary in WSL |
+|--------|------------------------|---------------------|
+| Audio Output | ✅ Full Windows audio support | ❌ ALSA errors, no audio |
+| TTS Generation | ✅ Works perfectly | ✅ Works perfectly |
+| Network Access | ✅ Accessible from both Windows & WSL | ❌ WSL only |
+| Single Binary | ✅ Serves both environments | ❌ Need separate binaries |
+| Configuration | One-time `BIND_ADDRESS` setting | Complex ALSA/PulseAudio config |
+
+### Security Considerations
+
+**`BIND_ADDRESS=0.0.0.0:42069`** makes the API accessible to your local network.
+
+**For localhost-only with WSL support:**
+1. Use Windows Firewall to allow only WSL subnet (typically `172.16.0.0/12`)
+2. Or bind to WSL subnet: `BIND_ADDRESS=172.16.0.0:42069`
+
+**For development machine only:**
+- `0.0.0.0` is fine for local development
+- API has no authentication, so avoid exposing to untrusted networks
+
+### Alternative: Headless Mode (No Audio)
+
+If you don't need audio playback in WSL, run the Linux binary with headless mode:
+
+```bash
+# Linux binary in WSL (no audio output)
+HEADLESS_MODE=true ./quindar-tone-api-linux-x64
+```
+
+This eliminates ALSA errors but audio is not played (TTS still generated).
+
 ## API Endpoint
 
 ### POST /play

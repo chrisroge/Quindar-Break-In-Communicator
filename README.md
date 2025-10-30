@@ -407,6 +407,77 @@ All dependencies are pure Rust - no Python or external tools required!
   - Advanced usage patterns
   - Error handling guide
 
+## Using with WSL (Windows Subsystem for Linux)
+
+### RECOMMENDED: Access Windows Binary from WSL
+
+**The Problem:** WSL lacks direct ALSA audio device access, causing audio playback errors even though TTS generation works.
+
+**The Solution:** Run the Windows binary and access it from WSL over the network. This provides full audio support through Windows' audio system.
+
+#### Setup Steps
+
+1. **Run the Windows binary with network access:**
+
+On Windows PowerShell:
+```powershell
+# Set bind address to accept WSL connections
+$env:BIND_ADDRESS="0.0.0.0:42069"
+.\quindar-tone-api-windows-x64.exe
+```
+
+Or add to your `.env` file (in same directory as the binary):
+```env
+BIND_ADDRESS=0.0.0.0:42069
+```
+
+Then run normally:
+```powershell
+.\quindar-tone-api-windows-x64.exe
+```
+
+2. **Call from WSL using Windows host IP:**
+
+From your WSL terminal:
+```bash
+# Get Windows host IP
+WINDOWS_HOST=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+
+# Test the connection
+curl -X POST http://$WINDOWS_HOST:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Hello from WSL"}'
+```
+
+3. **Make it permanent (optional):**
+
+Add to your WSL `~/.bashrc` or `~/.zshrc`:
+```bash
+# Quindar API Windows host
+export QUINDAR_HOST=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+alias quindar-play='curl -X POST http://$QUINDAR_HOST:42069/play -H "Content-Type: application/json" -d'
+```
+
+Then use it like:
+```bash
+quindar-play '{"text": "Build complete!"}'
+```
+
+#### Why This Works
+
+- Windows binary runs natively with full Windows audio support
+- WSL can reach Windows services via the Windows host IP address
+- Audio plays through your Windows audio system (speakers/headphones)
+- No ALSA configuration needed in WSL
+- Single binary serves both Windows and WSL applications
+
+#### Security Note
+
+Binding to `0.0.0.0` makes the API accessible to your local network. For localhost-only access with WSL support:
+- Keep default `127.0.0.1:42069` binding
+- Set up Windows Firewall to allow WSL subnet access to port 42069
+- Or use `BIND_ADDRESS=172.16.0.0:42069` to limit to typical WSL subnet
+
 ## Troubleshooting
 
 ### ALSA Errors on Linux/WSL
@@ -417,9 +488,11 @@ ALSA lib confmisc.c:855:(parse_card) cannot find card '0'
 ALSA lib conf.c:5204:(_snd_config_evaluate) function snd_func_card_inum returned error
 ```
 
-These are expected when running on WSL (Windows Subsystem for Linux) or headless Linux systems without audio hardware. The application handles missing audio devices gracefully, but ALSA itself logs these warnings.
+These are expected when running on WSL (Windows Subsystem for Linux) or headless Linux systems without audio hardware.
 
-**Best Solution - Headless Mode:**
+**BEST SOLUTION for WSL: See [Using with WSL](#using-with-wsl-windows-subsystem-for-linux) section above** - Run the Windows binary and access it from WSL.
+
+**Alternative - Headless Mode (no audio):**
 
 Run with `HEADLESS_MODE=true` to completely eliminate ALSA errors:
 
@@ -435,10 +508,10 @@ echo "HEADLESS_MODE=true" >> .env
 **What headless mode does:**
 - ✅ **Eliminates ALL ALSA errors** - No audio device creation attempted
 - ✅ **TTS still generated** - Voice synthesis works normally
-- ✅ **API returns success** - Perfect for WSL, Docker, CI/CD
-- ✅ **Zero configuration** - Just set the environment variable
+- ✅ **API returns success** - Perfect for headless servers, Docker, CI/CD
+- ⚠️ **No audio playback** - Audio is generated but not played
 
-**Alternative Solutions:**
+**Other Alternatives:**
 
 1. **Suppress ALSA errors** (if you prefer logging):
 ```bash
@@ -455,13 +528,13 @@ EOF
 ./quindar-tone-api-linux-x64 2>/dev/null
 ```
 
-3. **Enable audio in WSL2**: Follow [Microsoft's WSL audio guide](https://learn.microsoft.com/en-us/windows/wsl/tutorials/gui-apps)
+3. **Enable audio in WSL2** (complex, not recommended): Follow [Microsoft's WSL audio guide](https://learn.microsoft.com/en-us/windows/wsl/tutorials/gui-apps)
 
 ### No Audio Output
 
 - Ensure audio is not muted and volume is turned up
 - On Linux, verify ALSA/PulseAudio is configured correctly
-- On WSL, audio requires WSL2 with GUI support
+- **On WSL, use the Windows binary** - See [Using with WSL](#using-with-wsl-windows-subsystem-for-linux) section
 - Try the test request in the Quick Start section to verify functionality
 
 ## 💖 Support This Project
