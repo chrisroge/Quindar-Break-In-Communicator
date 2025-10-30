@@ -566,6 +566,7 @@ async fn transmission_queue_processor(mut rx: mpsc::UnboundedReceiver<Transmissi
 }
 
 /// Load .env file from executable directory or current directory
+#[allow(clippy::collapsible_if)]
 fn load_env_file() {
     use std::path::PathBuf;
 
@@ -583,7 +584,10 @@ fn load_env_file() {
                         env_path = Some(exe_env);
                     }
                     Err(e) => {
-                        eprintln!("Warning: Found .env at {:?} but failed to load: {}", exe_env, e);
+                        eprintln!(
+                            "Warning: Found .env at {:?} but failed to load: {}",
+                            exe_env, e
+                        );
                     }
                 }
             }
@@ -673,8 +677,8 @@ async fn main() {
         .with_state(state);
 
     // Get bind address from environment or use default
-    let bind_address = std::env::var("BIND_ADDRESS")
-        .unwrap_or_else(|_| "127.0.0.1:42069".to_string());
+    let bind_address =
+        std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:42069".to_string());
 
     let listener = tokio::net::TcpListener::bind(&bind_address)
         .await
