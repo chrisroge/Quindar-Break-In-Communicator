@@ -15,6 +15,7 @@ The Quindar Break-In API is a **pure Rust** audio communication service designed
 - [Response Format](#response-format)
 - [Voice Options](#voice-options)
 - [Tone Options](#tone-options)
+- [Toast Notifications](#toast-notifications)
 - [Voice Personalization](#voice-personalization)
 - [Queue Behavior](#queue-behavior)
 - [Audio Sequence](#audio-sequence)
@@ -239,6 +240,8 @@ The request body must be valid JSON with the following structure:
 | `speed`        | number | No       | `1.0`       | Playback speed (0.25 to 4.0, where 1.0 is normal speed) |
 | `volume`       | number | No       | `2.0`       | Volume gain multiplier (0.1 to 5.0, where 1.0 is original volume) |
 | `tone`         | string | No       | `"QUINDAR"` | Tone type: `"QUINDAR"`, `"THREE-NOTE-CHIME"`, or `"NO-TONE"` (see Tone Options) |
+| `enable_toast` | boolean | No      | `false`     | Enable desktop toast notification for this request       |
+| `toast_urgency` | string | No      | `"info"`    | Toast urgency level: `"info"`, `"warning"`, or `"critical"` |
 
 ### Example Request
 
@@ -395,6 +398,306 @@ This uses the default QUINDAR tone (or whatever is set in your `.env`).
 
 #### NO-TONE Mode
 1. **Your voice message only** (no tones or static)
+
+## Toast Notifications
+
+Toast notifications provide visual desktop alerts alongside audio notifications. This feature is cross-platform (Linux, macOS, Windows) and highly configurable.
+
+### Overview
+
+- **App Name**: "Quindar Service"
+- **Title**: "Quindar Notification"
+- **Body**: Your text message
+- **Cross-platform**: Works on Linux, macOS, and Windows
+- **Default**: Disabled (opt-in feature)
+
+### Enabling Toast Notifications
+
+#### Per-Request (Recommended)
+
+Add `enable_toast: true` to your request:
+
+```bash
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Build completed successfully",
+    "enable_toast": true
+  }'
+```
+
+#### Globally via Environment Variable
+
+Add to your `.env` file:
+```env
+ENABLE_TOAST_NOTIFICATIONS=true
+```
+
+**Note**: Per-request `enable_toast` parameter overrides the global setting.
+
+### Toast Urgency Levels
+
+Control the visual appearance and timeout behavior with `toast_urgency`:
+
+| Level | Icon | Timeout | Use Case | Behavior |
+|-------|------|---------|----------|----------|
+| `info` (default) | Blue information icon | 5 seconds | Status updates, completions, general information | Auto-dismisses |
+| `warning` | Orange warning icon | 8 seconds | Warnings, cautions, non-critical alerts | Auto-dismisses |
+| `critical` | Red error icon | Persistent (0ms) | Errors, urgent alerts, critical issues | Requires user dismissal |
+
+### Toast Urgency Examples
+
+#### Info Level (Default)
+
+```bash
+# Auto-dismisses after 5 seconds
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Process completed successfully",
+    "enable_toast": true
+  }'
+
+# Explicitly specify info level
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Database backup complete",
+    "enable_toast": true,
+    "toast_urgency": "info"
+  }'
+```
+
+#### Warning Level
+
+```bash
+# Auto-dismisses after 8 seconds
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "API rate limit approaching 80%",
+    "enable_toast": true,
+    "toast_urgency": "warning"
+  }'
+```
+
+#### Critical Level
+
+```bash
+# Persistent - requires user dismissal
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "System error: Database connection failed",
+    "enable_toast": true,
+    "toast_urgency": "critical"
+  }'
+```
+
+### Accepted Urgency Values
+
+The API accepts multiple variations (case-insensitive):
+
+- **Info**: `"info"`, `"information"`
+- **Warning**: `"warning"`, `"warn"`
+- **Critical**: `"critical"`, `"error"`, `"urgent"`
+
+### Platform-Specific Behavior
+
+#### Linux
+- Uses D-Bus notification daemon
+- Icons: `dialog-information`, `dialog-warning`, `dialog-error`
+- Appears in system notification area
+
+#### macOS
+- Uses native notification center
+- Appears in top-right corner
+- Integrates with Do Not Disturb settings
+
+#### Windows
+- Uses Windows notification system
+- Appears in notification area (bottom-right)
+- Respects Windows notification settings
+
+### Combining Toast with Audio
+
+Toast notifications work alongside audio - both fire simultaneously:
+
+```bash
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Critical alert: System resources at 15%",
+    "voice": "echo",
+    "instructions": "Speak with controlled urgency",
+    "speed": 1.05,
+    "volume": 2.5,
+    "enable_toast": true,
+    "toast_urgency": "critical"
+  }'
+```
+
+**Result**:
+1. Audio plays with Quindar tones and voice
+2. Toast notification appears on desktop simultaneously
+3. User receives both audible and visual alert
+
+### Best Practices
+
+#### 1. Choose Appropriate Urgency Levels
+
+```bash
+# ✅ Good: Info for completions
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Build completed",
+    "enable_toast": true,
+    "toast_urgency": "info"
+  }'
+
+# ✅ Good: Warning for concerning but non-critical issues
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Disk space at 85%",
+    "enable_toast": true,
+    "toast_urgency": "warning"
+  }'
+
+# ✅ Good: Critical for urgent issues requiring action
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Service crashed - immediate attention required",
+    "enable_toast": true,
+    "toast_urgency": "critical"
+  }'
+
+# ❌ Bad: Overusing critical for minor issues
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Build completed",
+    "enable_toast": true,
+    "toast_urgency": "critical"
+  }'
+```
+
+#### 2. Use Per-Request Control
+
+Prefer `enable_toast` per-request rather than global setting:
+
+```bash
+# More control - enable only for important messages
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Important: Deployment failed",
+    "enable_toast": true,
+    "toast_urgency": "critical"
+  }'
+
+# Routine updates without toast
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Starting routine backup"}'
+```
+
+#### 3. Keep Toast Messages Concise
+
+Toast notifications show your text message - keep it brief:
+
+```bash
+# ✅ Good: Concise message
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Build failed: Tests did not pass",
+    "enable_toast": true,
+    "toast_urgency": "critical"
+  }'
+
+# ❌ Bad: Too verbose for toast
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "The build process has encountered an error during the test execution phase. Please review the test output logs for detailed information about which tests failed and why they failed.",
+    "enable_toast": true,
+    "toast_urgency": "critical"
+  }'
+```
+
+#### 4. Reserve Critical for True Emergencies
+
+Use critical urgency sparingly - persistent notifications require user action:
+
+```bash
+# ✅ Good use of critical
+- "System out of memory - shutting down"
+- "Database connection lost"
+- "Security breach detected"
+
+# ❌ Poor use of critical
+- "New email received"
+- "Task completed"
+- "Cache cleared"
+```
+
+### JavaScript/Node.js Example with Toast
+
+```javascript
+const axios = require('axios');
+
+async function sendAlert(text, urgency = 'info') {
+  try {
+    const response = await axios.post('http://127.0.0.1:42069/play', {
+      text: text,
+      voice: 'echo',
+      enable_toast: true,
+      toast_urgency: urgency
+    });
+    console.log(response.data);
+  } catch (error) {
+    console.error('Request failed:', error.message);
+  }
+}
+
+// Info notification
+await sendAlert('Process completed successfully', 'info');
+
+// Warning notification
+await sendAlert('Memory usage at 85%', 'warning');
+
+// Critical notification
+await sendAlert('Service crashed!', 'critical');
+```
+
+### Python Example with Toast
+
+```python
+import requests
+
+def send_alert(text, urgency='info'):
+    url = 'http://127.0.0.1:42069/play'
+    payload = {
+        'text': text,
+        'voice': 'echo',
+        'enable_toast': True,
+        'toast_urgency': urgency
+    }
+
+    try:
+        response = requests.post(url, json=payload)
+        print(response.text)
+    except Exception as e:
+        print(f'Request failed: {e}')
+
+# Usage
+send_alert('Build completed', 'info')
+send_alert('Disk space low', 'warning')
+send_alert('System error detected', 'critical')
+```
 
 ## Voice Personalization
 
@@ -963,6 +1266,7 @@ For issues, questions, or feature requests, please refer to the main README.md o
 
 ---
 
-**Last Updated:** 2025-10-22
-**API Version:** 0.1.0
-**Compatibility:** OpenAI TTS API v1
+**Last Updated:** 2025-10-30
+**API Version:** 1.1.0
+**Compatibility:** OpenAI TTS API v1, Edge TTS
+**New in v1.1.0:** Cross-platform toast notifications with three urgency levels

@@ -3,7 +3,7 @@
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.87%2B-orange.svg)](https://www.rust-lang.org/)
 
-A Rust application that plays a Quindar tone followed by text-to-speech audio when called via API request.
+A Rust application that plays a Quindar tone followed by text-to-speech audio when called via API request. Includes optional cross-platform toast notifications for visual alerts alongside audio.
 
 **For complete API documentation, see [Quindar-Break-In-Developer_guide.md](Quindar-Break-In-Developer_guide.md)**
 
@@ -273,6 +273,90 @@ curl -X POST http://127.0.0.1:42069/play \
 
 If omitted, uses the `DEFAULT_TONE` from your `.env` file.
 
+### Toast Notifications
+
+Enable cross-platform desktop toast notifications alongside audio notifications! Toast notifications provide visual alerts that appear on your desktop when audio plays.
+
+**Features:**
+- ✅ **Cross-platform support** (Linux, macOS, Windows)
+- ✅ **Three urgency levels** with appropriate icons and timeouts
+- ✅ **Per-request control** via API parameters
+- ✅ **Global configuration** via environment variable
+- ✅ **Backward compatible** (disabled by default)
+
+#### Enable Toast Notifications
+
+**Per-Request (Recommended):**
+```bash
+# Basic toast (info level)
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Build completed successfully",
+    "enable_toast": true
+  }'
+```
+
+**Globally (via .env):**
+```env
+ENABLE_TOAST_NOTIFICATIONS=true
+```
+
+#### Toast Urgency Levels
+
+Control the visual appearance and behavior with `toast_urgency`:
+
+| Level | Icon | Timeout | Best For |
+|-------|------|---------|----------|
+| `info` (default) | Blue information | 5 seconds | Status updates, completions |
+| `warning` | Orange warning | 8 seconds | Warnings, cautions |
+| `critical` | Red error | Persistent (requires dismissal) | Errors, urgent alerts |
+
+**Examples:**
+
+```bash
+# Information toast (default, auto-dismisses after 5s)
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "Process completed successfully",
+    "enable_toast": true
+  }'
+
+# Warning toast (auto-dismisses after 8s)
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "API rate limit approaching",
+    "enable_toast": true,
+    "toast_urgency": "warning"
+  }'
+
+# Critical toast (persistent, requires user dismissal)
+curl -X POST http://127.0.0.1:42069/play \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "System error detected",
+    "enable_toast": true,
+    "toast_urgency": "critical"
+  }'
+```
+
+**Accepted urgency values:**
+- **Info**: `"info"`, `"information"` (case-insensitive)
+- **Warning**: `"warning"`, `"warn"` (case-insensitive)
+- **Critical**: `"critical"`, `"error"`, `"urgent"` (case-insensitive)
+
+#### Toast Notification Behavior
+
+- **App Name**: "Quindar Service"
+- **Title**: "Quindar Notification"
+- **Body**: Your text message
+- **Per-request override**: `enable_toast` parameter overrides global setting
+- **Default**: Disabled (opt-in feature)
+
+For detailed toast notification integration, see [Quindar-Break-In-Developer_guide.md](Quindar-Break-In-Developer_guide.md#toast-notifications).
+
 ### Audio Sequence
 
 The audio sequence varies based on your tone type selection:
@@ -394,6 +478,7 @@ All dependencies are pure Rust - no Python or external tools required!
 - **rodio**: Audio playback library
 - **msedge-tts**: Native Rust client for Microsoft Edge TTS API
 - **reqwest**: HTTP client for OpenAI API
+- **notify-rust**: Cross-platform desktop toast notifications
 - **serde**: JSON serialization
 - **dotenv**: Environment variable management
 
