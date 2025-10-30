@@ -5,6 +5,7 @@ use axum::{
     routing::post,
 };
 use msedge_tts::tts::{SpeechConfig, client::connect_async};
+use notify_rust::Notification;
 use rodio::{Decoder, OutputStream, Sink, Source};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
@@ -55,6 +56,40 @@ impl ToneType {
     }
 }
 
+/// Toast notification urgency levels
+#[derive(Debug, Clone, PartialEq)]
+enum ToastUrgency {
+    Info,     // General information - blue icon
+    Warning,  // Warning message - yellow/orange icon
+    Critical, // Critical/urgent - red icon
+}
+
+impl ToastUrgency {
+    fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "warning" | "warn" => ToastUrgency::Warning,
+            "critical" | "error" | "urgent" => ToastUrgency::Critical,
+            _ => ToastUrgency::Info, // Default to Info
+        }
+    }
+
+    fn icon(&self) -> &str {
+        match self {
+            ToastUrgency::Info => "dialog-information",
+            ToastUrgency::Warning => "dialog-warning",
+            ToastUrgency::Critical => "dialog-error",
+        }
+    }
+
+    fn timeout_ms(&self) -> i32 {
+        match self {
+            ToastUrgency::Info => 5000,       // 5 seconds
+            ToastUrgency::Warning => 8000,    // 8 seconds
+            ToastUrgency::Critical => 0,      // Persistent (requires dismissal)
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct PlayRequest {
     text: String,
@@ -68,6 +103,10 @@ struct PlayRequest {
     volume: f32,
     #[serde(default)]
     tone: Option<String>,
+    #[serde(default)]
+    enable_toast: Option<bool>,
+    #[serde(default)]
+    toast_urgency: Option<String>,
 }
 
 fn default_voice() -> String {
@@ -90,6 +129,8 @@ struct TransmissionRequest {
     speed: f32,
     volume: f32,
     tone_type: ToneType,
+    enable_toast: bool,
+    toast_urgency: ToastUrgency,
 }
 
 #[derive(Clone)]
@@ -466,12 +507,33 @@ async fn get_edge_tts(text: &str, voice: &str, speed: f32) -> Result<Vec<u8>, St
     Ok(audio_result.audio_bytes)
 }
 
+/// Show a toast notification with the given text and urgency level
+fn show_toast_notification(text: &str, urgency: &ToastUrgency) {
+    let result = Notification::new()
+        .appname("Quindar Service")
+        .summary("Quindar Notification")
+        .body(text)
+        .icon(urgency.icon())
+        .timeout(urgency.timeout_ms())
+        .show();
+
+    match result {
+        Ok(_) => println!("Toast notification shown: {}", text),
+        Err(e) => eprintln!("Failed to show toast notification: {}", e),
+    }
+}
+
 /// Process a single transmission (called by queue processor)
 async fn process_transmission(req: TransmissionRequest) {
     println!(
         "\n=== Processing transmission: {} (voice: {}) ===",
         req.text, req.voice
     );
+
+    // Show toast notification if enabled
+    if req.enable_toast {
+        show_toast_notification(&req.text, &req.toast_urgency);
+    }
 
     // Determine TTS provider
     let tts_provider = TtsProvider::from_env();
@@ -640,6 +702,21 @@ async fn play_tone_handler(
         None => ToneType::from_env(),
     };
 
+    // Determine if toast notifications should be enabled
+    // Priority: per-request > environment variable > false (default)
+    let enable_toast = match payload.enable_toast {
+        Some(val) => val,
+        None => std::env::var("ENABLE_TOAST_NOTIFICATIONS")
+            .unwrap_or_else(|_| "false".to_string())
+            .to_lowercase() == "true",
+    };
+
+    // Determine toast urgency level
+    let toast_urgency = match &payload.toast_urgency {
+        Some(urgency_str) => ToastUrgency::from_str(urgency_str),
+        None => ToastUrgency::Info, // Default to Info
+    };
+
     let transmission = TransmissionRequest {
         text: payload.text,
         voice: payload.voice,
@@ -647,6 +724,8 @@ async fn play_tone_handler(
         speed: payload.speed,
         volume: payload.volume,
         tone_type,
+        enable_toast,
+        toast_urgency,
     };
 
     if let Err(e) = state.tx.send(transmission) {

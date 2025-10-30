@@ -14,3 +14,4 @@ reqwest = { version = "0.12", features = ["stream", "json"] }
 dotenv = "0.15"
 bytes = "1.0"
 msedge-tts = "0.2"
+notify-rust = "4"
