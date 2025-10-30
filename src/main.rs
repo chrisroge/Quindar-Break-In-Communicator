@@ -483,28 +483,62 @@ async fn get_edge_tts(text: &str, voice: &str, speed: f32) -> Result<Vec<u8>, St
         final_voice, rate_str
     );
 
-    // Create TTS client
-    let mut client = connect_async()
-        .await
-        .map_err(|e| format!("Failed to connect to Edge TTS: {}", e))?;
+    // Retry logic for Edge TTS - first request after startup sometimes fails with WebSocket error
+    let max_retries = 3;
+    let mut last_error = String::new();
 
-    // Create speech config with voice and rate
-    // SpeechConfig fields: voice_name, audio_format, pitch, rate, volume (all i32 except strings)
-    let config = SpeechConfig {
-        voice_name: final_voice,
-        audio_format: "audio-24khz-48kbitrate-mono-mp3".to_string(),
-        pitch: 0,           // Normal pitch
-        rate: rate_percent, // Already calculated as i32 percentage
-        volume: 0,          // Normal volume
-    };
+    for attempt in 1..=max_retries {
+        // Create TTS client
+        let client_result = connect_async().await;
+        let mut client = match client_result {
+            Ok(c) => c,
+            Err(e) => {
+                last_error = format!("Failed to connect to Edge TTS: {}", e);
+                if attempt < max_retries {
+                    println!(
+                        "Connection attempt {} failed, retrying... ({})",
+                        attempt, last_error
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                    continue;
+                }
+                return Err(last_error);
+            }
+        };
 
-    // Synthesize speech
-    let audio_result = client
-        .synthesize(text, &config)
-        .await
-        .map_err(|e| format!("Failed to synthesize speech: {}", e))?;
+        // Create speech config with voice and rate
+        // SpeechConfig fields: voice_name, audio_format, pitch, rate, volume (all i32 except strings)
+        let config = SpeechConfig {
+            voice_name: final_voice.clone(),
+            audio_format: "audio-24khz-48kbitrate-mono-mp3".to_string(),
+            pitch: 0,           // Normal pitch
+            rate: rate_percent, // Already calculated as i32 percentage
+            volume: 0,          // Normal volume
+        };
 
-    Ok(audio_result.audio_bytes)
+        // Synthesize speech
+        match client.synthesize(text, &config).await {
+            Ok(audio_result) => {
+                if attempt > 1 {
+                    println!("✓ Connection succeeded on attempt {}", attempt);
+                }
+                return Ok(audio_result.audio_bytes);
+            }
+            Err(e) => {
+                last_error = format!("Failed to synthesize speech: {}", e);
+                if attempt < max_retries {
+                    println!(
+                        "Synthesis attempt {} failed, retrying... ({})",
+                        attempt, last_error
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                    continue;
+                }
+            }
+        }
+    }
+
+    Err(last_error)
 }
 
 /// Show a toast notification with the given text and urgency level
