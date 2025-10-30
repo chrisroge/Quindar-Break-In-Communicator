@@ -58,6 +58,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev pkg-config libssl-dev
 
+      - name: Set macOS RUSTFLAGS for AppKit
+        if: runner.os == 'macOS'
+        run: echo "RUSTFLAGS=-D warnings -C link-arg=-framework -C link-arg=AppKit" >> $GITHUB_ENV
+
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
