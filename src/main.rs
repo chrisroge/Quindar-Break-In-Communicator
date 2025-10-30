@@ -565,6 +565,51 @@ async fn transmission_queue_processor(mut rx: mpsc::UnboundedReceiver<Transmissi
     println!("Transmission queue processor stopped");
 }
 
+/// Load .env file from executable directory or current directory
+fn load_env_file() {
+    use std::path::PathBuf;
+
+    let mut loaded = false;
+    let mut env_path: Option<PathBuf> = None;
+
+    // Try 1: Load from executable's directory
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let exe_env = exe_dir.join(".env");
+            if exe_env.exists() {
+                match dotenv::from_path(&exe_env) {
+                    Ok(_) => {
+                        loaded = true;
+                        env_path = Some(exe_env);
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: Found .env at {:?} but failed to load: {}", exe_env, e);
+                    }
+                }
+            }
+        }
+    }
+
+    // Try 2: Load from current directory (if not already loaded)
+    if !loaded {
+        match dotenv::dotenv() {
+            Ok(path) => {
+                env_path = Some(path);
+            }
+            Err(_) => {
+                // No .env file found in current directory either
+            }
+        }
+    }
+
+    // Log the result
+    if let Some(path) = env_path {
+        println!("Loaded configuration from: {}", path.display());
+    } else {
+        println!("No .env file found - using default configuration and environment variables");
+    }
+}
+
 /// API handler to enqueue transmission requests
 async fn play_tone_handler(
     State(state): State<Arc<AppState>>,
@@ -610,8 +655,8 @@ async fn play_tone_handler(
 
 #[tokio::main]
 async fn main() {
-    // Load .env file
-    dotenv::dotenv().ok();
+    // Load .env file - try executable directory first, then current directory
+    load_env_file();
 
     // Create the transmission queue channel
     let (tx, rx) = mpsc::unbounded_channel::<TransmissionRequest>();
