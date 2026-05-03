@@ -4,30 +4,172 @@ use axum::{
     response::IntoResponse,
     routing::post,
 };
+use mpris::{PlayerFinder, PlaybackStatus};
 use msedge_tts::tts::{SpeechConfig, client::connect_async};
-use notify_rust::Notification;
 use rodio::{Decoder, OutputStream, Sink, Source};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::f32::consts::PI;
 use std::io::Cursor;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-/// TTS Provider options
-#[derive(Debug, Clone, PartialEq)]
-enum TtsProvider {
-    Edge,
-    OpenAI,
+/// Brand-term pronunciation respellings, applied to text before synthesis.
+/// Neural TTS handles English orthography well but mangles novel proper nouns
+/// (e.g. "Enscrive" gets pronounced "en-SKREEV"); a respelling like "en skryve"
+/// nudges it onto the right phonetics. Logs preserve the original; only the
+/// synthesizer sees the respelling.
+static PRONUNCIATION_LEXICON: LazyLock<Vec<(&'static str, &'static str)>> = LazyLock::new(|| {
+    vec![
+        // "Enscrive" rhymes with "jive", begins with "N" not "ON".
+        ("Enscrive", "en skryve"),
+    ]
+});
+
+fn apply_pronunciation(text: &str) -> String {
+    let mut result = text.to_string();
+    for (term, respelling) in PRONUNCIATION_LEXICON.iter() {
+        result = result.replace(term, respelling);
+    }
+    result
 }
 
-impl TtsProvider {
-    fn from_env() -> Self {
-        match std::env::var("DEFAULT_TTS").as_deref() {
-            Ok("OPENAI") => TtsProvider::OpenAI,
-            Ok("EDGE") => TtsProvider::Edge,
-            _ => TtsProvider::Edge, // Default to Edge
+/// Backend-agnostic synthesis input.
+#[derive(Debug, Clone)]
+struct SynthesisRequest {
+    text: String,
+    voice: String,
+    speed: f32,
+}
+
+/// TTS backend abstraction. Adding a new backend (Piper, Klatt, Parler, ...)
+/// means adding a struct, a variant, and a `synthesize` arm.
+#[derive(Clone)]
+enum TtsBackend {
+    Edge(EdgeBackend),
+}
+
+impl TtsBackend {
+    fn from_env() -> Result<Self, String> {
+        Ok(Self::Edge(EdgeBackend::from_env()))
+    }
+
+    fn display_name(&self) -> &'static str {
+        match self {
+            Self::Edge(_) => "Edge TTS (free)",
         }
+    }
+
+    async fn synthesize(&self, req: &SynthesisRequest) -> Result<Vec<u8>, String> {
+        match self {
+            Self::Edge(b) => b.synthesize(req).await,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct EdgeBackend {
+    default_voice: String,
+}
+
+impl EdgeBackend {
+    fn from_env() -> Self {
+        Self {
+            default_voice: std::env::var("EDGE_VOICE")
+                .unwrap_or_else(|_| "en-US-AndrewNeural".to_string()),
+        }
+    }
+}
+
+/// Audio destination. Selected once at startup based on environment.
+/// Telegram is outbound-only by design — no command handler, no inbound
+/// listening — eliminating reply-injection attack surface.
+#[derive(Clone)]
+enum AudioSink {
+    Local,
+    Telegram(TelegramSink),
+}
+
+impl AudioSink {
+    fn from_env() -> Self {
+        match (
+            std::env::var("TELEGRAM_BOT_TOKEN"),
+            std::env::var("TELEGRAM_CHAT_ID"),
+        ) {
+            (Ok(token), Ok(chat_id)) if !token.is_empty() && !chat_id.is_empty() => {
+                Self::Telegram(TelegramSink { token, chat_id })
+            }
+            _ => Self::Local,
+        }
+    }
+
+    fn display_name(&self) -> &'static str {
+        match self {
+            Self::Local => "Local audio playback",
+            Self::Telegram(_) => "Telegram (outbound voice message)",
+        }
+    }
+
+    async fn deliver(
+        &self,
+        audio_bytes: Vec<u8>,
+        transcript: &str,
+        tone_type: ToneType,
+        volume: f32,
+    ) -> Result<(), String> {
+        match self {
+            Self::Local => {
+                tokio::task::spawn_blocking(move || {
+                    play_tones_and_audio(audio_bytes, volume, tone_type)
+                })
+                .await
+                .map_err(|e| format!("Audio playback task failed: {}", e))?
+            }
+            Self::Telegram(s) => s.deliver(audio_bytes, transcript).await,
+        }
+    }
+}
+
+/// Telegram outbound sink. Currently delivers via `sendAudio` (MP3) — Edge
+/// TTS's free read-aloud endpoint doesn't emit OGG/Opus, which `sendVoice`
+/// would require. The transcript becomes the audio caption.
+#[derive(Clone)]
+struct TelegramSink {
+    token: String,
+    chat_id: String,
+}
+
+impl TelegramSink {
+    async fn deliver(&self, audio_bytes: Vec<u8>, transcript: &str) -> Result<(), String> {
+        let url = format!("https://api.telegram.org/bot{}/sendAudio", self.token);
+
+        let audio_part = reqwest::multipart::Part::bytes(audio_bytes)
+            .file_name("quindar.mp3")
+            .mime_str("audio/mpeg")
+            .map_err(|e| format!("Failed to build audio part: {}", e))?;
+
+        let form = reqwest::multipart::Form::new()
+            .text("chat_id", self.chat_id.clone())
+            .text("caption", transcript.to_string())
+            .text("title", "Quindar")
+            .text("performer", "Claude Code")
+            .part("audio", audio_part);
+
+        let response = reqwest::Client::new()
+            .post(&url)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to call Telegram API: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Telegram API error {}: {}", status, body));
+        }
+
+        println!("Telegram audio message delivered");
+        Ok(())
     }
 }
 
@@ -56,57 +198,18 @@ impl ToneType {
     }
 }
 
-/// Toast notification urgency levels
-#[derive(Debug, Clone, PartialEq)]
-enum ToastUrgency {
-    Info,     // General information - blue icon
-    Warning,  // Warning message - yellow/orange icon
-    Critical, // Critical/urgent - red icon
-}
-
-impl ToastUrgency {
-    fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "warning" | "warn" => ToastUrgency::Warning,
-            "critical" | "error" | "urgent" => ToastUrgency::Critical,
-            _ => ToastUrgency::Info, // Default to Info
-        }
-    }
-
-    fn icon(&self) -> &str {
-        match self {
-            ToastUrgency::Info => "dialog-information",
-            ToastUrgency::Warning => "dialog-warning",
-            ToastUrgency::Critical => "dialog-error",
-        }
-    }
-
-    fn timeout_ms(&self) -> i32 {
-        match self {
-            ToastUrgency::Info => 5000,       // 5 seconds
-            ToastUrgency::Warning => 8000,    // 8 seconds
-            ToastUrgency::Critical => 0,      // Persistent (requires dismissal)
-        }
-    }
-}
 
 #[derive(Deserialize)]
 struct PlayRequest {
     text: String,
     #[serde(default = "default_voice")]
     voice: String,
-    #[serde(default)]
-    instructions: Option<String>,
     #[serde(default = "default_speed")]
     speed: f32,
     #[serde(default = "default_volume")]
     volume: f32,
     #[serde(default)]
     tone: Option<String>,
-    #[serde(default)]
-    enable_toast: Option<bool>,
-    #[serde(default)]
-    toast_urgency: Option<String>,
 }
 
 fn default_voice() -> String {
@@ -125,12 +228,9 @@ fn default_volume() -> f32 {
 struct TransmissionRequest {
     text: String,
     voice: String,
-    instructions: Option<String>,
     speed: f32,
     volume: f32,
     tone_type: ToneType,
-    enable_toast: bool,
-    toast_urgency: ToastUrgency,
 }
 
 #[derive(Clone)]
@@ -246,6 +346,125 @@ fn is_headless_mode() -> bool {
     std::env::var("HEADLESS_MODE")
         .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
         .unwrap_or(false)
+}
+
+/// Check if audio ducking is enabled via environment variable
+fn is_audio_ducking_enabled() -> bool {
+    std::env::var("ENABLE_AUDIO_DUCKING")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false)
+}
+
+/// Manages pausing and resuming MPRIS media players for audio ducking
+struct AudioDucker {
+    paused_players: Vec<String>, // Bus names of players we paused
+}
+
+impl AudioDucker {
+    /// Create a new AudioDucker and pause any playing media players
+    fn pause_media_players() -> Self {
+        let mut paused_players = Vec::new();
+
+        if !is_audio_ducking_enabled() {
+            return AudioDucker { paused_players };
+        }
+
+        println!("Audio ducking: Checking for active media players...");
+
+        // Find all MPRIS players
+        let finder = match PlayerFinder::new() {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Audio ducking: Failed to connect to D-Bus: {}", e);
+                return AudioDucker { paused_players };
+            }
+        };
+
+        let players = match finder.find_all() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Audio ducking: Failed to find players: {}", e);
+                return AudioDucker { paused_players };
+            }
+        };
+
+        for player in players {
+            let identity = player.identity().to_string();
+
+            // Check if player is currently playing
+            match player.get_playback_status() {
+                Ok(PlaybackStatus::Playing) => {
+                    // Try to pause this player
+                    match player.pause() {
+                        Ok(_) => {
+                            println!("Audio ducking: Paused '{}'", identity);
+                            paused_players.push(player.bus_name().to_string());
+                        }
+                        Err(e) => {
+                            eprintln!("Audio ducking: Failed to pause '{}': {}", identity, e);
+                        }
+                    }
+                }
+                Ok(_) => {
+                    // Player not playing, skip
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Audio ducking: Failed to get status for '{}': {}",
+                        identity, e
+                    );
+                }
+            }
+        }
+
+        if paused_players.is_empty() {
+            println!("Audio ducking: No active media players found");
+        }
+
+        AudioDucker { paused_players }
+    }
+
+    /// Resume all players that were paused
+    fn resume_media_players(self) {
+        if self.paused_players.is_empty() {
+            return;
+        }
+
+        println!(
+            "Audio ducking: Resuming {} paused player(s)...",
+            self.paused_players.len()
+        );
+
+        let finder = match PlayerFinder::new() {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Audio ducking: Failed to reconnect to D-Bus: {}", e);
+                return;
+            }
+        };
+
+        let players = match finder.find_all() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Audio ducking: Failed to find players for resume: {}", e);
+                return;
+            }
+        };
+
+        for player in players {
+            if self.paused_players.contains(&player.bus_name().to_string()) {
+                let identity = player.identity().to_string();
+                match player.play() {
+                    Ok(_) => {
+                        println!("Audio ducking: Resumed '{}'", identity);
+                    }
+                    Err(e) => {
+                        eprintln!("Audio ducking: Failed to resume '{}': {}", identity, e);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Play tones and audio based on tone type
@@ -396,232 +615,130 @@ impl Source for AudioSource {
     }
 }
 
-/// Stream TTS from OpenAI and return audio bytes
-async fn get_openai_tts(
-    text: &str,
-    voice: &str,
-    instructions: Option<&str>,
-    speed: f32,
-    api_key: &str,
-) -> Result<Vec<u8>, String> {
-    let client = reqwest::Client::new();
-
-    #[derive(Serialize)]
-    struct TTSRequest {
-        model: String,
-        input: String,
-        voice: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        instructions: Option<String>,
-        speed: f32,
-    }
-
-    let request_body = TTSRequest {
-        model: "tts-1".to_string(),
-        input: text.to_string(),
-        voice: voice.to_string(),
-        instructions: instructions.map(|s| s.to_string()),
-        speed,
-    };
-
-    let response = client
-        .post("https://api.openai.com/v1/audio/speech")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to call OpenAI API: {}", e))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let error_text = response.text().await.unwrap_or_default();
-        return Err(format!("OpenAI API error {}: {}", status, error_text));
-    }
-
-    let audio_bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read audio stream: {}", e))?;
-
-    Ok(audio_bytes.to_vec())
-}
-
-/// Get TTS from Edge TTS using native Rust client
-async fn get_edge_tts(text: &str, voice: &str, speed: f32) -> Result<Vec<u8>, String> {
-    // Map speed to edge-tts rate format (percentage)
-    // speed 0.25 -> -75%, speed 1.0 -> +0%, speed 4.0 -> +300%
-    let rate_percent = ((speed - 1.0) * 100.0).round() as i32;
-    let rate_str = if rate_percent >= 0 {
-        format!("+{}%", rate_percent)
-    } else {
-        format!("{}%", rate_percent)
-    };
-
-    // Get edge voice (use env var or default)
-    let edge_voice =
-        std::env::var("EDGE_VOICE").unwrap_or_else(|_| "en-US-AndrewNeural".to_string());
-
-    // Use edge voice if no specific voice mapping needed
-    // In the future, we could map OpenAI voice names to Edge voices
-    let final_voice = if voice == "alloy"
-        || voice == "echo"
-        || voice == "fable"
-        || voice == "onyx"
-        || voice == "nova"
-        || voice == "shimmer"
-    {
-        // Use default edge voice for OpenAI voice names
-        edge_voice
-    } else {
-        // Use provided voice name (might be an edge-tts voice)
-        voice.to_string()
-    };
-
-    println!(
-        "Calling Edge TTS API with voice: {}, rate: {}",
-        final_voice, rate_str
-    );
-
-    // Retry logic for Edge TTS - first request after startup sometimes fails with WebSocket error
-    let max_retries = 3;
-    let mut last_error = String::new();
-
-    for attempt in 1..=max_retries {
-        // Create TTS client
-        let client_result = connect_async().await;
-        let mut client = match client_result {
-            Ok(c) => c,
-            Err(e) => {
-                last_error = format!("Failed to connect to Edge TTS: {}", e);
-                if attempt < max_retries {
-                    println!(
-                        "Connection attempt {} failed, retrying... ({})",
-                        attempt, last_error
-                    );
-                    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-                    continue;
-                }
-                return Err(last_error);
-            }
+impl EdgeBackend {
+    async fn synthesize(&self, req: &SynthesisRequest) -> Result<Vec<u8>, String> {
+        // Map speed to edge-tts rate format (percentage)
+        // speed 0.25 -> -75%, speed 1.0 -> +0%, speed 4.0 -> +300%
+        let rate_percent = ((req.speed - 1.0) * 100.0).round() as i32;
+        let rate_str = if rate_percent >= 0 {
+            format!("+{}%", rate_percent)
+        } else {
+            format!("{}%", rate_percent)
         };
 
-        // Create speech config with voice and rate
-        // SpeechConfig fields: voice_name, audio_format, pitch, rate, volume (all i32 except strings)
-        let config = SpeechConfig {
-            voice_name: final_voice.clone(),
-            audio_format: "audio-24khz-48kbitrate-mono-mp3".to_string(),
-            pitch: 0,           // Normal pitch
-            rate: rate_percent, // Already calculated as i32 percentage
-            volume: 0,          // Normal volume
+        // Legacy voice names from the old OpenAI backend route to the configured
+        // Edge default; any other value is treated as a literal Edge voice id.
+        let final_voice = if matches!(
+            req.voice.as_str(),
+            "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer"
+        ) {
+            self.default_voice.clone()
+        } else {
+            req.voice.clone()
         };
 
-        // Synthesize speech
-        match client.synthesize(text, &config).await {
-            Ok(audio_result) => {
-                if attempt > 1 {
-                    println!("✓ Connection succeeded on attempt {}", attempt);
+        println!(
+            "Calling Edge TTS API with voice: {}, rate: {}",
+            final_voice, rate_str
+        );
+
+        // Retry logic for Edge TTS - first request after startup sometimes fails with WebSocket error
+        let max_retries = 3;
+        let mut last_error = String::new();
+
+        for attempt in 1..=max_retries {
+            let client_result = connect_async().await;
+            let mut client = match client_result {
+                Ok(c) => c,
+                Err(e) => {
+                    last_error = format!("Failed to connect to Edge TTS: {}", e);
+                    if attempt < max_retries {
+                        println!(
+                            "Connection attempt {} failed, retrying... ({})",
+                            attempt, last_error
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                        continue;
+                    }
+                    return Err(last_error);
                 }
-                return Ok(audio_result.audio_bytes);
-            }
-            Err(e) => {
-                last_error = format!("Failed to synthesize speech: {}", e);
-                if attempt < max_retries {
-                    println!(
-                        "Synthesis attempt {} failed, retrying... ({})",
-                        attempt, last_error
-                    );
-                    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-                    continue;
+            };
+
+            let config = SpeechConfig {
+                voice_name: final_voice.clone(),
+                audio_format: "audio-24khz-48kbitrate-mono-mp3".to_string(),
+                pitch: 0,
+                rate: rate_percent,
+                volume: 0,
+            };
+
+            match client.synthesize(&req.text, &config).await {
+                Ok(audio_result) => {
+                    if attempt > 1 {
+                        println!("✓ Connection succeeded on attempt {}", attempt);
+                    }
+                    return Ok(audio_result.audio_bytes);
+                }
+                Err(e) => {
+                    last_error = format!("Failed to synthesize speech: {}", e);
+                    if attempt < max_retries {
+                        println!(
+                            "Synthesis attempt {} failed, retrying... ({})",
+                            attempt, last_error
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                        continue;
+                    }
                 }
             }
         }
-    }
 
-    Err(last_error)
-}
-
-/// Show a toast notification with the given text and urgency level
-fn show_toast_notification(text: &str, urgency: &ToastUrgency) {
-    let result = Notification::new()
-        .appname("Quindar Service")
-        .summary("Quindar Notification")
-        .body(text)
-        .icon(urgency.icon())
-        .timeout(urgency.timeout_ms())
-        .show();
-
-    match result {
-        Ok(_) => println!("Toast notification shown: {}", text),
-        Err(e) => eprintln!("Failed to show toast notification: {}", e),
+        Err(last_error)
     }
 }
 
 /// Process a single transmission (called by queue processor)
-async fn process_transmission(req: TransmissionRequest) {
+async fn process_transmission(
+    req: TransmissionRequest,
+    backend: Arc<TtsBackend>,
+    sink: Arc<AudioSink>,
+) {
     println!(
         "\n=== Processing transmission: {} (voice: {}) ===",
         req.text, req.voice
     );
 
-    // Show toast notification if enabled
-    if req.enable_toast {
-        show_toast_notification(&req.text, &req.toast_urgency);
-    }
-
-    // Determine TTS provider
-    let tts_provider = TtsProvider::from_env();
-
-    // Validate API key if using OpenAI
-    if tts_provider == TtsProvider::OpenAI && std::env::var("OPENAI_API_KEY").is_err() {
-        eprintln!("Error: OPENAI_API_KEY not set but DEFAULT_TTS=OPENAI");
-        return;
-    }
-
-    // Start requesting TTS immediately (async)
-    let mut log_msg = match tts_provider {
-        TtsProvider::OpenAI => format!("Requesting TTS from OpenAI with voice '{}'", req.voice),
-        TtsProvider::Edge => format!("Requesting TTS from Edge TTS with voice '{}'", req.voice),
-    };
-
+    let mut log_msg = format!(
+        "Requesting TTS from {} with voice '{}' → {}",
+        backend.display_name(),
+        req.voice,
+        sink.display_name()
+    );
     if req.speed != 1.0 {
         log_msg.push_str(&format!(", speed: {}", req.speed));
     }
     if req.volume != 2.0 {
         log_msg.push_str(&format!(", volume: {:.1}x", req.volume));
     }
-    if let Some(ref instr) = req.instructions {
-        log_msg.push_str(&format!(", instructions: '{}'", instr));
-    }
     println!("{}...", log_msg);
 
-    let text = req.text.clone();
-    let voice = req.voice.clone();
-    let instructions = req.instructions.clone();
-    let speed = req.speed;
+    let synth_req = SynthesisRequest {
+        text: apply_pronunciation(&req.text),
+        voice: req.voice.clone(),
+        speed: req.speed,
+    };
 
-    let tts_task = tokio::spawn(async move {
-        match tts_provider {
-            TtsProvider::OpenAI => {
-                let api_key = std::env::var("OPENAI_API_KEY").unwrap();
-                get_openai_tts(&text, &voice, instructions.as_deref(), speed, &api_key).await
-            }
-            TtsProvider::Edge => {
-                // Edge TTS doesn't support instructions parameter
-                if instructions.is_some() {
-                    println!(
-                        "Note: Edge TTS does not support instructions parameter (OpenAI only)"
-                    );
-                }
-                get_edge_tts(&text, &voice, speed).await
-            }
-        }
-    });
+    let backend_for_task = Arc::clone(&backend);
+    let tts_task = tokio::spawn(async move { backend_for_task.synthesize(&synth_req).await });
 
     // Wait for TTS to complete buffering (no pre-transmission audio)
     let audio_bytes = match tts_task.await {
         Ok(Ok(bytes)) => {
-            println!("Voice buffered successfully!");
+            println!("Voice buffered successfully ({} bytes)", bytes.len());
+            if bytes.is_empty() {
+                eprintln!("Error: TTS returned 0 bytes — the requested audio format may be unsupported by Edge TTS");
+                return;
+            }
             bytes
         }
         Ok(Err(e)) => {
@@ -634,28 +751,52 @@ async fn process_transmission(req: TransmissionRequest) {
         }
     };
 
-    // Now play tones and audio based on tone type
-    let volume = req.volume;
-    let tone_type = req.tone_type.clone();
-    if let Err(e) = tokio::task::spawn_blocking(move || {
-        if let Err(e) = play_tones_and_audio(audio_bytes, volume, tone_type) {
-            eprintln!("Error playing audio: {}", e);
-        }
-    })
-    .await
+    // Audio ducking only matters for local playback. Telegram delivery doesn't
+    // touch the local audio device, so we skip the D-Bus dance entirely.
+    let needs_local_playback = matches!(*sink, AudioSink::Local);
+    let ducker = if needs_local_playback {
+        Some(
+            tokio::task::spawn_blocking(AudioDucker::pause_media_players)
+                .await
+                .unwrap_or_else(|e| {
+                    eprintln!("Audio ducking task failed: {}", e);
+                    AudioDucker {
+                        paused_players: Vec::new(),
+                    }
+                }),
+        )
+    } else {
+        None
+    };
+
+    if let Err(e) = sink
+        .deliver(audio_bytes, &req.text, req.tone_type.clone(), req.volume)
+        .await
     {
-        eprintln!("Audio playback task failed: {}", e);
+        eprintln!("Error delivering audio: {}", e);
+    }
+
+    if let Some(ducker) = ducker {
+        tokio::task::spawn_blocking(move || {
+            ducker.resume_media_players();
+        })
+        .await
+        .ok();
     }
 
     println!("Transmission complete!\n");
 }
 
 /// Background task that processes the transmission queue
-async fn transmission_queue_processor(mut rx: mpsc::UnboundedReceiver<TransmissionRequest>) {
+async fn transmission_queue_processor(
+    mut rx: mpsc::UnboundedReceiver<TransmissionRequest>,
+    backend: Arc<TtsBackend>,
+    sink: Arc<AudioSink>,
+) {
     println!("Transmission queue processor started");
 
     while let Some(req) = rx.recv().await {
-        process_transmission(req).await;
+        process_transmission(req, Arc::clone(&backend), Arc::clone(&sink)).await;
     }
 
     println!("Transmission queue processor stopped");
@@ -725,9 +866,6 @@ async fn play_tone_handler(
     if payload.volume != 2.0 {
         log_msg.push_str(&format!(", volume: {:.1}x", payload.volume));
     }
-    if let Some(ref instr) = payload.instructions {
-        log_msg.push_str(&format!(", instructions: '{}'", instr));
-    }
     println!("{}", log_msg);
 
     // Determine tone type (from request or environment default)
@@ -736,30 +874,12 @@ async fn play_tone_handler(
         None => ToneType::from_env(),
     };
 
-    // Determine if toast notifications should be enabled
-    // Priority: per-request > environment variable > false (default)
-    let enable_toast = match payload.enable_toast {
-        Some(val) => val,
-        None => std::env::var("ENABLE_TOAST_NOTIFICATIONS")
-            .unwrap_or_else(|_| "false".to_string())
-            .to_lowercase() == "true",
-    };
-
-    // Determine toast urgency level
-    let toast_urgency = match &payload.toast_urgency {
-        Some(urgency_str) => ToastUrgency::from_str(urgency_str),
-        None => ToastUrgency::Info, // Default to Info
-    };
-
     let transmission = TransmissionRequest {
         text: payload.text,
         voice: payload.voice,
-        instructions: payload.instructions,
         speed: payload.speed,
         volume: payload.volume,
         tone_type,
-        enable_toast,
-        toast_urgency,
     };
 
     if let Err(e) = state.tx.send(transmission) {
@@ -775,11 +895,29 @@ async fn main() {
     // Load .env file - try executable directory first, then current directory
     load_env_file();
 
+    // Construct the TTS backend once at startup so misconfiguration fails fast
+    // instead of waiting for the first request.
+    let backend = match TtsBackend::from_env() {
+        Ok(b) => Arc::new(b),
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Choose audio destination: Telegram if both bot token and chat id are
+    // configured, otherwise local playback.
+    let sink = Arc::new(AudioSink::from_env());
+
     // Create the transmission queue channel
     let (tx, rx) = mpsc::unbounded_channel::<TransmissionRequest>();
 
     // Spawn the queue processor task
-    tokio::spawn(transmission_queue_processor(rx));
+    tokio::spawn(transmission_queue_processor(
+        rx,
+        Arc::clone(&backend),
+        Arc::clone(&sink),
+    ));
 
     // Create app state with the sender
     let state = Arc::new(AppState { tx });
@@ -801,21 +939,21 @@ async fn main() {
             std::process::exit(1);
         });
 
-    // Show TTS provider information
-    let tts_provider = TtsProvider::from_env();
-    let tts_name = match tts_provider {
-        TtsProvider::Edge => "Edge TTS (free)",
-        TtsProvider::OpenAI => "OpenAI (premium)",
-    };
-
     println!("Quindar Tone API server running on http://{}", bind_address);
-    println!("TTS Provider: {}", tts_name);
+    println!("TTS Provider: {}", backend.display_name());
+    println!("Audio Destination: {}", sink.display_name());
 
     if is_headless_mode() {
         println!("Audio Output: HEADLESS MODE (no audio playback, TTS generation only)");
         println!("  → Perfect for WSL, headless servers, and testing environments");
     } else {
         println!("Audio Output: ENABLED");
+    }
+
+    if is_audio_ducking_enabled() {
+        println!("Audio Ducking: ENABLED (will pause media players during announcements)");
+    } else {
+        println!("Audio Ducking: DISABLED (set ENABLE_AUDIO_DUCKING=true to enable)");
     }
 
     println!("Transmission queue enabled - multiple requests will play sequentially");
